@@ -398,7 +398,7 @@ class MDGAT(nn.Module):
             self.config['descriptor_dim'], self.config['descritor_encoder'])
 
         elif self.descriptor == 'DGCNN_leaky':
-            self.desc=(DGCNN(self.config['embed_dim'],20))
+            self.desc=(DGCNN_leaky(self.config['embed_dim'],20))
             self.kenc = KeypointEncoder(
                         self.config['descriptor_dim'], self.config['keypoint_encoder'],False)
             self.pointnet_to_superglue=pointnet_to_superglue(self.config['embed_dim'],
