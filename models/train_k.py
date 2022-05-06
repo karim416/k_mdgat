@@ -220,7 +220,7 @@ if __name__ == '__main__':
         print('====================\nStart new training')
 
 
-    train_set = SparseDataset(opt, 'test')
+    train_set = SparseDataset(opt, 'train')
     val_set = SparseDataset(opt, 'val')
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
