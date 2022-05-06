@@ -135,6 +135,14 @@ parser.add_argument(
     '--train_step', type=int, default=3,  
     help='Training step when using pointnet: 1,2,3')
 
+parser.add_argument(
+    '--descriptor_dim',  type=int, default=256, 
+    help=' features dim ')
+
+parser.add_argument(
+    '--embed_dim',  type=int, default=256, 
+    help='DGCNN output dim ')
+
 if __name__ == '__main__':
     opt = parser.parse_args()
     from load_data import SparseDataset    
@@ -157,7 +165,10 @@ if __name__ == '__main__':
             'mutual_check': opt.mutual_check,
             'triplet_loss_gamma': opt.triplet_loss_gamma,
             'train_step':opt.train_step,
-            'L':opt.l
+            'L':opt.l,
+            'descriptor_dim' : opt.descriptor_dim,
+            'embed_dim' : opt.embed_dim
+                
         }
     }
     if opt.net == 'superglue':
