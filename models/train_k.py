@@ -152,25 +152,19 @@ if __name__ == '__main__':
     else:
         model_name = 'nomutualcheck-{}-k{}-batch{}-{}-{}-{}' .format(opt.net, opt.k, opt.batch_size, opt.loss_method, opt.descriptor, opt.keypoints)
     
-    log_path = './logs/{}/{}{}-k{}-{}-{}' .format(opt.dataset, opt.net, opt.l, opt.k, opt.loss_method, opt.descriptor)
-    if opt.descriptor == 'pointnet' or opt.descriptor == 'pointnetmsg':
-        log_path = '{}/train_step{}' .format(log_path, opt.train_step)
-    log_path = '{}/{}' .format(log_path,model_name)
-    log_path = Path(log_path)
-    log_path.mkdir(exist_ok=True, parents=True)
-    logger = SummaryWriter(log_path)
+
     
-    model_out_path = '{}/{}/{}{}-k{}-{}-{}' .format(opt.model_out_path, opt.dataset, opt.net, opt.l, opt.k, opt.loss_method, opt.descriptor)
-    if opt.descriptor == 'pointnet' or opt.descriptor == 'pointnetmsg':
-        model_out_path = '{}/train_step{}' .format(model_out_path, opt.train_step)
-    model_out_path = '{}/{}' .format(model_out_path, model_name)
+   # model_out_path = '{}/{}/{}{}-k{}-{}-{}' .format(opt.model_out_path, opt.dataset, opt.net, opt.l, opt.k, opt.loss_method, opt.descriptor)
+    # if opt.descriptor == 'pointnet' or opt.descriptor == 'pointnetmsg':
+    #     model_out_path = '{}/train_step{}' .format(model_out_path, opt.train_step)
+    # model_out_path = '{}/{}' .format(model_out_path, model_name)
+    model_out_path = opt.model_out_path
     model_out_path = Path(model_out_path)
     model_out_path.mkdir(exist_ok=True, parents=True)
 
     print("Train",opt.net,"net with \nStructure k:",opt.k,"\nDescriptor: ",opt.descriptor,"\nLoss: ",opt.loss_method,"\nin Dataset: ",opt.dataset,
     "\n====================",
-    "\nmodel_out_path: ", model_out_path,
-    "\nlog_path: ",log_path)
+    "\nmodel_out_path: ", model_out_path)
    
     if opt.resume:        
         path_checkpoint = parentdir+'/'+opt.resume_model  
@@ -226,7 +220,7 @@ if __name__ == '__main__':
         print('====================\nStart new training')
 
 
-    train_set = SparseDataset(opt, 'train')
+    train_set = SparseDataset(opt, 'test')
     val_set = SparseDataset(opt, 'val')
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
