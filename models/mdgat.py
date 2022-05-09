@@ -8,6 +8,7 @@ import argparse
 import inspect
 import sys
 import os
+import numpy as np
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -434,6 +435,10 @@ class MDGAT(nn.Module):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
+
+        gt_matches0 = data['gt_matches0']
+        gt_matches1 = data['gt_matches1']
+
     
         if kpts0.shape[1] == 0 or kpts1.shape[1] == 0:  # no keypoints
             shape0, shape1 = kpts0.shape[:-1], kpts1.shape[:-1]
@@ -450,232 +455,241 @@ class MDGAT(nn.Module):
         # kpts0 = normalize_keypoints(kpts0, data['cloud0'].shape)
         # kpts1 = normalize_keypoints(kpts1, data['cloud1'].shape)
 
-        if self.descriptor == 'FPFH' or self.descriptor == 'FPFH_gloabal':
-            desc0, desc1 = data['descriptors0'].double(), data['descriptors1'].double()
-            '''Keypoint MLP encoder.'''
-            desc0 = self.denc(desc0) + self.kenc(kpts0, data['scores0'])
-            desc1 = self.denc(desc1) + self.kenc(kpts1, data['scores1'])
-            '''Multi-layer Transformer network.'''
-            desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
-            '''Final MLP projection.'''
-            mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
+        for j in range(1) :
             
-        elif self.descriptor == 'DGCNN_leaky' or self.descriptor == 'DGCNN':
-
-            desc0,_,_ = self.desc(kpts0.permute(1,2,0))
-            desc1,_,_ = self.desc(kpts1.permute(1,2,0))
-            desc0=self.pointnet_to_superglue(desc0)
-            desc1=self.pointnet_to_superglue(desc1)
-            penc0 = self.kenc(kpts0)
-            penc1 = self.kenc(kpts1)            
-            
-            desc0+=penc0
-            desc1+=penc1
-        
-            # Attentional Aggregation
-            desc0, desc1 = self.gnn(desc0, desc1,self.k, self.config['L'])
-            
-            # Final MLP projection equation 6!
-            mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)  
-            
-        elif self.descriptor == 'pointnet' or self.descriptor == 'pointnetmsg':
-            pc0, pc1 = data['cloud0'].double(), data['cloud1'].double()
-            desc0 = self.penc(pc0, kpts0, data['scores0'])
-            desc1 = self.penc(pc1, kpts1, data['scores1'])
-            """
-            3-step training
-            """
-            
-            if self.train_step == 1: # update pointnet only
-                mdesc0, mdesc1 = desc0, desc1 
-            elif self.train_step == 2: # update gnn only      
-                desc0, desc1 = desc0.detach(), desc1.detach()
+            if self.descriptor == 'FPFH' or self.descriptor == 'FPFH_gloabal':
+                desc0, desc1 = data['descriptors0'].double(), data['descriptors1'].double()
+                '''Keypoint MLP encoder.'''
+                desc0 = self.denc(desc0) + self.kenc(kpts0, data['scores0'])
+                desc1 = self.denc(desc1) + self.kenc(kpts1, data['scores1'])
                 '''Multi-layer Transformer network.'''
                 desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
                 '''Final MLP projection.'''
                 mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
-            elif self.train_step == 3: # update pointnet and gnn
-                '''Multi-layer Transformer network.'''
-                desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
-                '''Final MLP projection.'''
-                mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
-            else:
-                raise Exception('Invalid train_step.')
-        elif self.descriptor == 'FPFH_only':
-            desc0, desc1 = data['descriptors0'].double(), data['descriptors1'].double()
-            desc0 = self.denc(desc0) 
-            desc1 = self.denc(desc1) 
-            desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
-            mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
-        else:
-            raise Exception('Invalid descriptor.')
+                
+            elif self.descriptor == 'DGCNN_leaky' or self.descriptor == 'DGCNN':
 
-        scores = torch.einsum('bdn,bdm->bnm', mdesc0, mdesc1)
-        scores = scores / self.config['descriptor_dim']**.5
-
-        '''Run the optimal transport.'''
-        scores = log_optimal_transport(
-            scores, self.bin_score,
-            iters=self.config['sinkhorn_iterations'])
-
-        gt_matches0 = data['gt_matches0']
-        gt_matches1 = data['gt_matches1']
-
-        '''Match the keypoints'''
-        if self.loss_method == 'superglue':
-            '''determine the non_matches by comparing to a pre-defined threshold'''
-            max0, max1 = scores[:, :-1, :-1].max(2), scores[:, :-1, :-1].max(1)
-            indices0, indices1 = max0.indices, max1.indices
-            zero = scores.new_tensor(0)
-            if self.mutual_check:
-                mutual0 = arange_like(indices0, 1)[None] == indices1.gather(1, indices0) 
-                mutual1 = arange_like(indices1, 1)[None] == indices0.gather(1, indices1)
-                mscores0 = torch.where(mutual0, max0.values.exp(), zero)
-                mscores1 = torch.where(mutual1, mscores0.gather(1, indices1), zero)
-                valid0 = mutual0 & (mscores0 > self.config['match_threshold'])
-                valid1 = mutual1 & valid0.gather(1, indices1)
-            else:
-                valid0 = max0.values.exp() > self.config['match_threshold']
-                valid1 = max1.values.exp() > self.config['match_threshold']
-                mscores0 = torch.where(valid0, max0.values.exp(), zero)
-                mscores1 = torch.where(valid1, max1.values.exp(), zero)
-        else:
-            '''directly determine the non_matches on scores matrix'''
-            max0, max1 = scores[:, :-1, :].max(2), scores[:, :, :-1].max(1)
-            indices0, indices1 = max0.indices, max1.indices
-            valid0, valid1 = indices0<(scores.size(2)-1), indices1<(scores.size(1)-1)
-            zero = scores.new_tensor(0)
-            if valid0.sum() == 0:
-                mscores0 = torch.zeros_like(indices0, device='cuda')
-                mscores1 = torch.zeros_like(indices1, device='cuda')
-            else:
-                if self.mutual_check:
-                    batch = indices0.size(0)
-                    a0 = arange_like(indices0, 1)[None][valid0].view(batch,-1) == indices1.gather(1, indices0[valid0].view(batch,-1))
-                    a1 = arange_like(indices1, 1)[None][valid1].view(batch,-1) == indices0.gather(1, indices1[valid1].view(batch,-1))
-                    mutual0 = torch.zeros_like(indices0, device='cuda') > 0
-                    mutual1 = torch.zeros_like(indices1, device='cuda') > 0
-                    mutual0[valid0] = a0
-                    mutual1[valid1] = a1
-                    mscores0 = torch.where(mutual0, max0.values.exp(), zero)
-                    mscores1 = torch.where(mutual1, max1.values.exp(), zero)
+                desc0,_,_ = self.desc(kpts0.permute(1,2,0))
+                desc1,_,_ = self.desc(kpts1.permute(1,2,0))
+                desc0=self.pointnet_to_superglue(desc0)
+                desc1=self.pointnet_to_superglue(desc1)
+                penc0 = self.kenc(kpts0)
+                penc1 = self.kenc(kpts1)            
+                
+                desc0+=penc0
+                desc1+=penc1
+            
+                # Attentional Aggregation
+                desc0, desc1 = self.gnn(desc0, desc1,self.k, self.config['L'])
+                
+                # Final MLP projection equation 6!
+                mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)  
+                
+            elif self.descriptor == 'pointnet' or self.descriptor == 'pointnetmsg':
+                pc0, pc1 = data['cloud0'].double(), data['cloud1'].double()
+                desc0 = self.penc(pc0, kpts0, data['scores0'])
+                desc1 = self.penc(pc1, kpts1, data['scores1'])
+                """
+                3-step training
+                """
+                
+                if self.train_step == 1: # update pointnet only
+                    mdesc0, mdesc1 = desc0, desc1 
+                elif self.train_step == 2: # update gnn only      
+                    desc0, desc1 = desc0.detach(), desc1.detach()
+                    '''Multi-layer Transformer network.'''
+                    desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
+                    '''Final MLP projection.'''
+                    mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
+                elif self.train_step == 3: # update pointnet and gnn
+                    '''Multi-layer Transformer network.'''
+                    desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
+                    '''Final MLP projection.'''
+                    mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
                 else:
+                    raise Exception('Invalid train_step.')
+            elif self.descriptor == 'FPFH_only':
+                desc0, desc1 = data['descriptors0'].double(), data['descriptors1'].double()
+                desc0 = self.denc(desc0) 
+                desc1 = self.denc(desc1) 
+                desc0, desc1 = self.gnn(desc0, desc1, self.k, self.config['L'])
+                mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
+            else:
+                raise Exception('Invalid descriptor.')
+    
+            scores = torch.einsum('bdn,bdm->bnm', mdesc0, mdesc1)
+            scores = scores / self.config['descriptor_dim']**.5
+    
+            '''Run the optimal transport.'''
+            scores = log_optimal_transport(
+                scores, self.bin_score,
+                iters=self.config['sinkhorn_iterations'])
+    
+            '''Match the keypoints'''
+            if self.loss_method == 'superglue':
+                '''determine the non_matches by comparing to a pre-defined threshold'''
+                max0, max1 = scores[:, :-1, :-1].max(2), scores[:, :-1, :-1].max(1)
+                indices0, indices1 = max0.indices, max1.indices
+                zero = scores.new_tensor(0)
+                if self.mutual_check:
+                    mutual0 = arange_like(indices0, 1)[None] == indices1.gather(1, indices0) 
+                    mutual1 = arange_like(indices1, 1)[None] == indices0.gather(1, indices1)
+                    mscores0 = torch.where(mutual0, max0.values.exp(), zero)
+                    mscores1 = torch.where(mutual1, mscores0.gather(1, indices1), zero)
+                    valid0 = mutual0 & (mscores0 > self.config['match_threshold'])
+                    valid1 = mutual1 & valid0.gather(1, indices1)
+                else:
+                    valid0 = max0.values.exp() > self.config['match_threshold']
+                    valid1 = max1.values.exp() > self.config['match_threshold']
                     mscores0 = torch.where(valid0, max0.values.exp(), zero)
                     mscores1 = torch.where(valid1, max1.values.exp(), zero)
-        indices0 = torch.where(valid0, indices0, indices0.new_tensor(-1))
-        indices1 = torch.where(valid1, indices1, indices1.new_tensor(-1))
-
-        
-        '''Calculate loss'''
-        if self.loss_method == 'superglue':
-            aa = time.time()
-            b, n = gt_matches0.size()
-            _, m = gt_matches1.size()
-            batch_idx = torch.arange(0, b, dtype=int, device=torch.device('cuda')).view(-1, 1).repeat(1, n)
-            idx = torch.arange(0, n, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
-            indice = gt_matches0.long()
-            loss_tp = scores[batch_idx, idx, indice]
-            loss_tp = torch.sum(loss_tp, dim=1)
-
-            indice = gt_matches1.long()
-            mutual_inv = torch.zeros_like(gt_matches1, dtype=int, device=torch.device('cuda')) > 0
-            mutual_inv[gt_matches1 == -1] = True
-            xx = mutual_inv.sum(1)
-            loss_all = scores[batch_idx[mutual_inv], indice[mutual_inv], idx[mutual_inv]]
-            for batch in range(len(gt_matches0)):
-                xx_sum = torch.sum(xx[:batch])
-                loss = loss_all[xx_sum:][:xx[batch]]
-                loss = torch.sum(loss).view(1)
-                if batch == 0:
-                    loss_tn = loss
+            else:
+                '''directly determine the non_matches on scores matrix'''
+                max0, max1 = scores[:, :-1, :].max(2), scores[:, :, :-1].max(1)
+                indices0, indices1 = max0.indices, max1.indices
+                valid0, valid1 = indices0<(scores.size(2)-1), indices1<(scores.size(1)-1)
+                zero = scores.new_tensor(0)
+                if valid0.sum() == 0:
+                    mscores0 = torch.zeros_like(indices0, device='cuda')
+                    mscores1 = torch.zeros_like(indices1, device='cuda')
                 else:
-                    loss_tn = torch.cat((loss_tn, loss))
-            loss_mean = torch.mean((-loss_tp - loss_tn)/(xx+m))
-            loss_all = torch.mean(torch.cat((loss_tp.view(-1), loss_all)))
-        elif self.loss_method == 'triplet_loss':
-            b, n = gt_matches0.size()
-            _, m = gt_matches1.size()
+                    if self.mutual_check:
+                        batch = indices0.size(0)
+                        print(arange_like(indices0, 1)[None].view(batch,256).size())
+                        a0 = arange_like(indices0, 1)[None][valid0].view(batch,-1) == indices1.gather(1, indices0[valid0].view(batch,-1))
+                        a1 = arange_like(indices1, 1)[None][valid1].view(batch,-1) == indices0.gather(1, indices1[valid1].view(batch,-1))
+                        mutual0 = torch.zeros_like(indices0, device='cuda') > 0
+                        mutual1 = torch.zeros_like(indices1, device='cuda') > 0
+                        mutual0[valid0] = a0
+                        mutual1[valid1] = a1
+                        mscores0 = torch.where(mutual0, max0.values.exp(), zero)
+                        mscores1 = torch.where(mutual1, max1.values.exp(), zero)
+                    else:
+                        mscores0 = torch.where(valid0, max0.values.exp(), zero)
+                        mscores1 = torch.where(valid1, max1.values.exp(), zero)
+            indices0 = torch.where(valid0, indices0, indices0.new_tensor(-1))
+            indices1 = torch.where(valid1, indices1, indices1.new_tensor(-1))
+    
             
-            aa = time.time()
-            max0 = scores[:,:-1,:].topk(2, dim=2, largest=True, sorted=True).indices
-            max1 = scores[:,:,:-1].topk(2, dim=1, largest=True, sorted=True).indices
-            gt_matches0[gt_matches0 == -1] = m
-            gt_matches1[gt_matches1 == -1] = n
-            batch_idx = torch.arange(0, b, dtype=int, device=torch.device('cuda')).view(-1, 1).repeat(1, n)
-            idx = torch.arange(0, n, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
+            '''Calculate loss'''
+            if self.loss_method == 'superglue':
+                aa = time.time()
+                b, n = gt_matches0.size()
+                _, m = gt_matches1.size()
+                batch_idx = torch.arange(0, b, dtype=int, device=torch.device('cuda')).view(-1, 1).repeat(1, n)
+                idx = torch.arange(0, n, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
+                indice = gt_matches0.long()
+                loss_tp = scores[batch_idx, idx, indice]
+                loss_tp = torch.sum(loss_tp, dim=1)
+    
+                indice = gt_matches1.long()
+                mutual_inv = torch.zeros_like(gt_matches1, dtype=int, device=torch.device('cuda')) > 0
+                mutual_inv[gt_matches1 == -1] = True
+                xx = mutual_inv.sum(1)
+                loss_all = scores[batch_idx[mutual_inv], indice[mutual_inv], idx[mutual_inv]]
+                for batch in range(len(gt_matches0)):
+                    xx_sum = torch.sum(xx[:batch])
+                    loss = loss_all[xx_sum:][:xx[batch]]
+                    loss = torch.sum(loss).view(1)
+                    if batch == 0:
+                        loss_tn = loss
+                    else:
+                        loss_tn = torch.cat((loss_tn, loss))
+                loss_mean = torch.mean((-loss_tp - loss_tn)/(xx+m))
+                loss_all = torch.mean(torch.cat((loss_tp.view(-1), loss_all)))
+            elif self.loss_method == 'triplet_loss':
+                b, n = gt_matches0.size()
+                _, m = gt_matches1.size()
+                
+                aa = time.time()
+                max0 = scores[:,:-1,:].topk(2, dim=2, largest=True, sorted=True).indices
+                max1 = scores[:,:,:-1].topk(2, dim=1, largest=True, sorted=True).indices
+                gt_matches0[gt_matches0 == -1] = m
+                gt_matches1[gt_matches1 == -1] = n
+                batch_idx = torch.arange(0, b, dtype=int, device=torch.device('cuda')).view(-1, 1).repeat(1, n)
+                idx = torch.arange(0, n, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
+    
+                # pc0 -> pc1   
+                pos_indice = gt_matches0.long()
+                neg_indice = torch.zeros_like(gt_matches0, dtype=int, device=torch.device('cuda'))
+                neg_indice[max0[:,:,0] == gt_matches0] = 1 # choose the hard negative match 
+                accuracy = neg_indice.sum().item()/neg_indice.size(1)
+                neg_indice = max0[batch_idx, idx, neg_indice]
+                loss_anc_neg = scores[batch_idx, idx, neg_indice]
+                loss_anc_pos = scores[batch_idx, idx, pos_indice]
+                
+                # pc1 -> pc0
+                pos_indice = gt_matches1.long()
+                neg_indice = torch.zeros_like(gt_matches1, dtype=int, device=torch.device('cuda'))
+                neg_indice[max1[:,0,:] == gt_matches1] = 1
+                neg_indice = max1[batch_idx, neg_indice, idx]
+                loss_anc_neg = torch.cat((loss_anc_neg, scores[batch_idx, neg_indice, idx]), dim=1)
+                loss_anc_pos = torch.cat((loss_anc_pos, scores[batch_idx, pos_indice, idx]), dim=1)
+    
+                loss_anc_neg = -torch.log(loss_anc_neg.exp())
+                loss_anc_pos = -torch.log(loss_anc_pos.exp())
+                before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
+                active_percentage = torch.mean((before_clamp_loss > 0).float(), dim=1, keepdim=False)
+                triplet_loss = torch.clamp(before_clamp_loss, min=0)
+                loss_mean = torch.mean(triplet_loss)
+            elif self.loss_method == 'gap_loss':
+                b, n = gt_matches0.size()
+                _, m = gt_matches1.size()
+                
+                aa = time.time()
+                # max0 = scores[:,:-1,:].topk(2, dim=2, largest=True, sorted=True).indices
+                # max1 = scores[:,:,:-1].topk(2, dim=1, largest=True, sorted=True).indices
+                gt_matches0[gt_matches0 == -1] = m
+                gt_matches1[gt_matches1 == -1] = n
+                
+                idx = torch.arange(0, m+1, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, n, 1)
+                idx2 = torch.arange(0, n+1, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
+                idx2 = torch.repeat_interleave(idx2.unsqueeze(dim=2),repeats=m,dim=2)
+                # pc0 -> pc1   
+                pos_indice = gt_matches0.long()
+                # determine neg indice
+                pos_indice2 = torch.repeat_interleave(pos_indice.unsqueeze(dim=2),repeats=m+1,dim=2)
+                pos_match = idx == pos_indice2
+                neg_match = pos_match == False
+                loss_anc_pos = scores[:,:-1,:][pos_match].view(b,n)
+                loss_anc_neg = scores[:,:-1,:][neg_match].view(b,n,m)
+                loss_anc_pos = torch.repeat_interleave(loss_anc_pos.unsqueeze(dim=2),repeats=m,dim=2)
+                loss_anc_neg = -torch.log(loss_anc_neg.exp())
+                loss_anc_pos = -torch.log(loss_anc_pos.exp())
+                before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
+                active_num = torch.sum((before_clamp_loss > 0).float(), dim=2, keepdim=False)
+                gap_loss = torch.clamp(before_clamp_loss, min=0)
+                loss_mean = torch.mean(2*torch.log(torch.sum(gap_loss, dim=2)+1), dim=1)
+    
+                # pc1 -> pc0
+                pos_indice = gt_matches1.long()
+                # determine neg indice
+                pos_indice2 = torch.repeat_interleave(pos_indice.unsqueeze(dim=1),repeats=n+1,dim=1)
+                pos_match = idx2 == pos_indice2
+                neg_match = pos_match == False
+                loss_anc_pos = scores[:,:,:-1][pos_match].view(b,m)
+                loss_anc_neg = scores[:,:,:-1][neg_match].view(b,n,m)
+                loss_anc_pos = torch.repeat_interleave(loss_anc_pos.unsqueeze(dim=1),repeats=n,dim=1)
+                loss_anc_neg = -torch.log(loss_anc_neg.exp())
+                loss_anc_pos = -torch.log(loss_anc_pos.exp())
+                before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
+                active_num = torch.sum((before_clamp_loss > 0).float(), dim=1, keepdim=False)
+                active_num = torch.clamp(active_num-1, min=0)
+                active_num = torch.sum(active_num, dim=1)
+                gap_loss = torch.clamp(before_clamp_loss, min=0)
+                loss_mean2 = torch.mean(2*torch.log(torch.sum(gap_loss, dim=1)+1), dim=1)
+    
+                loss_mean = (loss_mean+loss_mean2)/2
+                
+            # Ici faut estimer la transformationnnnnnnnn
+            device = torch.device('cuda')
+            T = torch.eye(3).unsqueeze(0).repeat(b, 1, 1).double().to(device)
 
-            # pc0 -> pc1   
-            pos_indice = gt_matches0.long()
-            neg_indice = torch.zeros_like(gt_matches0, dtype=int, device=torch.device('cuda'))
-            neg_indice[max0[:,:,0] == gt_matches0] = 1 # choose the hard negative match 
-            accuracy = neg_indice.sum().item()/neg_indice.size(1)
-            neg_indice = max0[batch_idx, idx, neg_indice]
-            loss_anc_neg = scores[batch_idx, idx, neg_indice]
-            loss_anc_pos = scores[batch_idx, idx, pos_indice]
-            
-            # pc1 -> pc0
-            pos_indice = gt_matches1.long()
-            neg_indice = torch.zeros_like(gt_matches1, dtype=int, device=torch.device('cuda'))
-            neg_indice[max1[:,0,:] == gt_matches1] = 1
-            neg_indice = max1[batch_idx, neg_indice, idx]
-            loss_anc_neg = torch.cat((loss_anc_neg, scores[batch_idx, neg_indice, idx]), dim=1)
-            loss_anc_pos = torch.cat((loss_anc_pos, scores[batch_idx, pos_indice, idx]), dim=1)
-
-            loss_anc_neg = -torch.log(loss_anc_neg.exp())
-            loss_anc_pos = -torch.log(loss_anc_pos.exp())
-            before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
-            active_percentage = torch.mean((before_clamp_loss > 0).float(), dim=1, keepdim=False)
-            triplet_loss = torch.clamp(before_clamp_loss, min=0)
-            loss_mean = torch.mean(triplet_loss)
-        elif self.loss_method == 'gap_loss':
-            b, n = gt_matches0.size()
-            _, m = gt_matches1.size()
-            
-            aa = time.time()
-            # max0 = scores[:,:-1,:].topk(2, dim=2, largest=True, sorted=True).indices
-            # max1 = scores[:,:,:-1].topk(2, dim=1, largest=True, sorted=True).indices
-            gt_matches0[gt_matches0 == -1] = m
-            gt_matches1[gt_matches1 == -1] = n
-            
-            idx = torch.arange(0, m+1, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, n, 1)
-            idx2 = torch.arange(0, n+1, dtype=int, device=torch.device('cuda')).view(1, -1).repeat(b, 1)
-            idx2 = torch.repeat_interleave(idx2.unsqueeze(dim=2),repeats=m,dim=2)
-            # pc0 -> pc1   
-            pos_indice = gt_matches0.long()
-            # determine neg indice
-            pos_indice2 = torch.repeat_interleave(pos_indice.unsqueeze(dim=2),repeats=m+1,dim=2)
-            pos_match = idx == pos_indice2
-            neg_match = pos_match == False
-            loss_anc_pos = scores[:,:-1,:][pos_match].view(b,n)
-            loss_anc_neg = scores[:,:-1,:][neg_match].view(b,n,m)
-            loss_anc_pos = torch.repeat_interleave(loss_anc_pos.unsqueeze(dim=2),repeats=m,dim=2)
-            loss_anc_neg = -torch.log(loss_anc_neg.exp())
-            loss_anc_pos = -torch.log(loss_anc_pos.exp())
-            before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
-            active_num = torch.sum((before_clamp_loss > 0).float(), dim=2, keepdim=False)
-            gap_loss = torch.clamp(before_clamp_loss, min=0)
-            loss_mean = torch.mean(2*torch.log(torch.sum(gap_loss, dim=2)+1), dim=1)
-
-            # pc1 -> pc0
-            pos_indice = gt_matches1.long()
-            # determine neg indice
-            pos_indice2 = torch.repeat_interleave(pos_indice.unsqueeze(dim=1),repeats=n+1,dim=1)
-            pos_match = idx2 == pos_indice2
-            neg_match = pos_match == False
-            loss_anc_pos = scores[:,:,:-1][pos_match].view(b,m)
-            loss_anc_neg = scores[:,:,:-1][neg_match].view(b,n,m)
-            loss_anc_pos = torch.repeat_interleave(loss_anc_pos.unsqueeze(dim=1),repeats=n,dim=1)
-            loss_anc_neg = -torch.log(loss_anc_neg.exp())
-            loss_anc_pos = -torch.log(loss_anc_pos.exp())
-            before_clamp_loss = loss_anc_pos - loss_anc_neg + self.triplet_loss_gamma
-            active_num = torch.sum((before_clamp_loss > 0).float(), dim=1, keepdim=False)
-            active_num = torch.clamp(active_num-1, min=0)
-            active_num = torch.sum(active_num, dim=1)
-            gap_loss = torch.clamp(before_clamp_loss, min=0)
-            loss_mean2 = torch.mean(2*torch.log(torch.sum(gap_loss, dim=1)+1), dim=1)
-
-            loss_mean = (loss_mean+loss_mean2)/2
-
+            #print(T.size())
+            # print(kpts0.permute(0,2,1).size())
+            # print(T.size())
+            # print(torch.einsum('bki,bij->bjk', T,kpts0.permute(0,2,1)))
+                
         return {
             'matches0': indices0, # use -1 for invalid match
             'matches1': indices1, # use -1 for invalid match
@@ -685,128 +699,128 @@ class MDGAT(nn.Module):
             # 'skip_train': False
         }
 
+parser = argparse.ArgumentParser(
+    description='Point cloud matching training ',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+parser.add_argument(
+    '--sinkhorn_iterations', type=int, default=20,
+    help='Number of Sinkhorn iterations')
+
+parser.add_argument(
+    '--learning_rate', type=int, default=0.0001,  #0.0001
+    help='Learning rate')
+
+parser.add_argument(
+    '--epoch', type=int, default=1,
+    help='Number of epoches')
+
+parser.add_argument(
+    '--memory_is_enough', type=bool, default=False, 
+    help='If memory is enough, load all the data')
+        
+parser.add_argument(
+    '--batch_size', type=int, default=1, #12
+    help='Batch size')
+
+parser.add_argument(
+    '--local_rank', type=int, default=[0,1,2,3], 
+    help='Gpu rank')
+
+parser.add_argument(
+    '--resume', type=bool, default=False, # True False
+    help='Resuming from existing model')
+
+parser.add_argument(
+    '--net', type=str, default='mdgat', 
+    help='Choose net structure : mdgat superglue')
+
+parser.add_argument(
+    '--loss_method', type=str, default='gap_loss',
+    help='Choose loss function : superglue triplet_loss gap_loss')
+
+parser.add_argument(
+    '--mutual_check', type=bool, default=False,  # True False
+    help='If perform mutual check')
+
+parser.add_argument(
+    '--k', type=int, default=[128, None, 128, None, 64, None, 64, None], 
+    help='Mdgat structure. None means connect all the nodes.')
+
+parser.add_argument(
+    '--l', type=int, default=9, 
+    help='Layers number of GNN')
+
+parser.add_argument(
+    '--descriptor', type=str, default='FPFH', 
+    help='Choose keypoint descriptor : FPFH pointnet pointnetmsg FPFH_gloabal FPFH_only')
+
+parser.add_argument(
+    '--keypoints', type=str, default='USIP', 
+    help='Choose keypoints : sharp USIP lessharp')
+
+parser.add_argument(
+    '--ensure_kpts_num', type=bool, default=False, 
+    help='')
+
+parser.add_argument(
+    '--max_keypoints', type=int, default=512,  #1024
+    help='Maximum number of keypoints'
+            ' (\'-1\' keeps all keypoints)')
+
+parser.add_argument(
+    '--dataset', type=str, default='kitti',  
+    help='Used dataset')
+
+parser.add_argument(
+    '--resume_model', type=str, default='./your_model.pth',
+    help='Path to the resumed model')
+
+parser.add_argument(
+    '--train_path', type=str, default=parentdir+'/KITTI', 
+    help='Path to the directory of training scans.')
+
+parser.add_argument(
+    '--keypoints_path', type=str, default=parentdir+'/KITTI/keypoints/tsf_256_FPFH_16384-512-k1k16-2d-nonoise',
+    help='Path to the directory of kepoints.')
+
+parser.add_argument(
+    '--txt_path', type=str, default=parentdir+'/KITTI/preprocess-random-full', 
+    help='Path to the directory of pairs.')
+
+parser.add_argument(
+    '--model_out_path', type=str, default=parentdir+'/KITTI/checkpoint',
+    help='Path to the directory of output model')
+
+parser.add_argument(
+    '--match_threshold', type=float, default=0.2,
+    help='SuperGlue match threshold')
+
+parser.add_argument(
+    '--threshold', type=float, default=0.5,
+    help='Ground truth distance threshold')
+
+parser.add_argument(
+    '--triplet_loss_gamma', type=float, default=0.5,
+    help='Threshold for triplet loss and gap loss')
+
+parser.add_argument(
+    '--train_step', type=int, default=3,  
+    help='Training step when using pointnet: 1,2,3')
+
+parser.add_argument(
+    '--descriptor_dim',  type=int, default=256, 
+    help=' features dim ')
+
+parser.add_argument(
+    '--embed_dim',  type=int, default=256, 
+    help='DGCNN output dim ')
 
 if __name__ == '__main__':
     
     from load_data import SparseDataset
     from torch.autograd import Variable
 
-    parser = argparse.ArgumentParser(
-        description='Point cloud matching training ',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    
-    parser.add_argument(
-        '--sinkhorn_iterations', type=int, default=20,
-        help='Number of Sinkhorn iterations')
-    
-    parser.add_argument(
-        '--learning_rate', type=int, default=0.0001,  #0.0001
-        help='Learning rate')
-    
-    parser.add_argument(
-        '--epoch', type=int, default=1,
-        help='Number of epoches')
-    
-    parser.add_argument(
-        '--memory_is_enough', type=bool, default=False, 
-        help='If memory is enough, load all the data')
-            
-    parser.add_argument(
-        '--batch_size', type=int, default=1, #12
-        help='Batch size')
-    
-    parser.add_argument(
-        '--local_rank', type=int, default=[0,1,2,3], 
-        help='Gpu rank')
-    
-    parser.add_argument(
-        '--resume', type=bool, default=False, # True False
-        help='Resuming from existing model')
-    
-    parser.add_argument(
-        '--net', type=str, default='mdgat', 
-        help='Choose net structure : mdgat superglue')
-    
-    parser.add_argument(
-        '--loss_method', type=str, default='gap_loss',
-        help='Choose loss function : superglue triplet_loss gap_loss')
-    
-    parser.add_argument(
-        '--mutual_check', type=bool, default=False,  # True False
-        help='If perform mutual check')
-    
-    parser.add_argument(
-        '--k', type=int, default=[128, None, 128, None, 64, None, 64, None], 
-        help='Mdgat structure. None means connect all the nodes.')
-    
-    parser.add_argument(
-        '--l', type=int, default=9, 
-        help='Layers number of GNN')
-    
-    parser.add_argument(
-        '--descriptor', type=str, default='FPFH', 
-        help='Choose keypoint descriptor : FPFH pointnet pointnetmsg FPFH_gloabal FPFH_only')
-    
-    parser.add_argument(
-        '--keypoints', type=str, default='USIP', 
-        help='Choose keypoints : sharp USIP lessharp')
-    
-    parser.add_argument(
-        '--ensure_kpts_num', type=bool, default=False, 
-        help='')
-    
-    parser.add_argument(
-        '--max_keypoints', type=int, default=512,  #1024
-        help='Maximum number of keypoints'
-                ' (\'-1\' keeps all keypoints)')
-    
-    parser.add_argument(
-        '--dataset', type=str, default='kitti',  
-        help='Used dataset')
-    
-    parser.add_argument(
-        '--resume_model', type=str, default='./your_model.pth',
-        help='Path to the resumed model')
-    
-    parser.add_argument(
-        '--train_path', type=str, default=parentdir+'/KITTI', 
-        help='Path to the directory of training scans.')
-    
-    parser.add_argument(
-        '--keypoints_path', type=str, default=parentdir+'/KITTI/keypoints/tsf_256_FPFH_16384-512-k1k16-2d-nonoise',
-        help='Path to the directory of kepoints.')
-    
-    parser.add_argument(
-        '--txt_path', type=str, default=parentdir+'/KITTI/preprocess-random-full', 
-        help='Path to the directory of pairs.')
-    
-    parser.add_argument(
-        '--model_out_path', type=str, default=parentdir+'/KITTI/checkpoint',
-        help='Path to the directory of output model')
-    
-    parser.add_argument(
-        '--match_threshold', type=float, default=0.2,
-        help='SuperGlue match threshold')
-    
-    parser.add_argument(
-        '--threshold', type=float, default=0.5,
-        help='Ground truth distance threshold')
-    
-    parser.add_argument(
-        '--triplet_loss_gamma', type=float, default=0.5,
-        help='Threshold for triplet loss and gap loss')
-    
-    parser.add_argument(
-        '--train_step', type=int, default=3,  
-        help='Training step when using pointnet: 1,2,3')
-    
-    parser.add_argument(
-        '--descriptor_dim',  type=int, default=256, 
-        help=' features dim ')
-    
-    parser.add_argument(
-        '--embed_dim',  type=int, default=256, 
-        help='DGCNN output dim ')
 
     opt = parser.parse_args()
 
@@ -827,7 +841,7 @@ if __name__ == '__main__':
                 
             }
         }
-    test_set = SparseDataset(opt, 'test')
+    test_set = SparseDataset(opt, 'val')
     test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
 
     net = MDGAT(config.get('net', {}))
