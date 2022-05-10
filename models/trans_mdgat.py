@@ -793,8 +793,8 @@ class MDGAT(nn.Module):
 
                 if valid_gt.sum() < len(matches_gt)*0.1:
                     # print('not enough ground truth match, ban the pair')
-                    loss_torch=torch.tensor(20.,dtype=torch.float64).to(device)
-                    loss.append(loss_torch.cpu().detach().numpy().item())
+                #    loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
+                #    loss.append(loss_torch.cpu().detach().numpy().item())
                     continue
 
                 mkpts0_gt = bkpts0[valid_gt]
@@ -811,8 +811,8 @@ class MDGAT(nn.Module):
             
 
                 if len(mkpts0) < 4:
-                    loss_torch=torch.tensor(20.,dtype=torch.float64).to(device)
-                    loss.append(loss_torch.cpu().detach().numpy().item())
+               #     loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
+                #    loss.append(loss_torch.cpu().detach().numpy().item())
 
                     continue
                 else:
