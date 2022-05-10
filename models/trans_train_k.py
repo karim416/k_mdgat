@@ -260,8 +260,10 @@ if __name__ == '__main__':
             # Transformation loss
             T_Loss = (pred['t_loss'])
             T_Loss = torch.mean(T_Loss)
+#            print(Loss)
+#            print(T_Loss)
             # sum
-            tot_loss= 0.1 * T_Loss + Loss
+            tot_loss= 0.01 * T_Loss + Loss
             
             epoch_loss += tot_loss.item()
             tot_loss.backward()
@@ -292,11 +294,19 @@ if __name__ == '__main__':
                     pred = {**pred, **data}
 
                     Loss = pred['loss']
-                    mean_val_loss.append(Loss) 
+                    # Transformation loss
+                    T_Loss = (pred['t_loss'])
+                    
+                    # sum
+                    tot_loss= 0.01 * T_Loss + Loss
+                    
+                    mean_val_loss.append(tot_loss) 
+                    
          
             timeconsume = time.time() - begin
             mean_val_loss = torch.mean(torch.stack(mean_val_loss)).item()
             epoch_loss /= len(train_loader)
+
             print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
             checkpoint = {
                     "net": net.state_dict(),

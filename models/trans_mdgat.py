@@ -5,6 +5,7 @@ from torch import nn
 import time
 from pointnet_util import PointNetSetKptsMsg, PointNetSetAbstraction
 from DGCNN import DGCNN , DGCNN_leaky
+from SVD import SVDHead
 import argparse
 import inspect
 import sys
@@ -495,6 +496,7 @@ class MDGAT(nn.Module):
         self.mutual_check = config['mutual_check']
         self.triplet_loss_gamma = config['triplet_loss_gamma']
         self.train_step = config['train_step']
+        self.SVD = SVDHead()
 
 
         print('\n----------MDGAT initialized-----------')
@@ -644,7 +646,8 @@ class MDGAT(nn.Module):
             indices0 = torch.where(valid0, indices0, indices0.new_tensor(-1))
             indices1 = torch.where(valid1, indices1, indices1.new_tensor(-1))
     
-            
+            device = torch.device('cuda')
+
             '''Calculate loss'''
             if self.loss_method == 'superglue':
                 aa = time.time()
@@ -754,92 +757,117 @@ class MDGAT(nn.Module):
                 loss_mean2 = torch.mean(2*torch.log(torch.sum(gap_loss, dim=1)+1), dim=1)
     
                 loss_mean = (loss_mean+loss_mean2)/2
-                
-            # Ici faut estimer la transformationnnnnnnnn
-            device = torch.device('cuda')
-            # on parcourt le batch 
-            # avec batch_size = len(data('dix0'))
-            loss=[]
-            k=0
-            for b in range(len(data['idx0'])):
-                bkpts0,bkpts1 = data['keypoints0'][b].cpu().detach().numpy(),data['keypoints1'][b].cpu().detach().numpy()
-                matches, matches1=indices0[b].cpu().detach().numpy(),indices1[b].cpu().detach().numpy()
-                valid = matches > -1
-                mkpts0 = bkpts0[valid]
-                mkpts1 = bkpts1[matches[valid]]
-#                print('Correspondances : ',len(mkpts0))
-
-                mutual0 = np.arange(len(matches))[valid] == matches1[matches[valid]]
-                mutual0 = np.arange(len(matches))[valid][mutual0]
-                mutual1 = matches[mutual0]
-                x = np.ones(len(matches1)) == 1
-                x[mutual1] = False
-                valid1 = matches1 > -1
-                # extrakpt1 = bkpts1[valid1 & x]
-                # extrakpt0 = bkpts0[matches1[valid1 & x]]
-                # mkpts0 = np.vstack((mkpts0, extrakpt0))
-                # mkpts1 = np.vstack((mkpts1, extrakpt1))
-
-                ## ground truth ##
-                matches_gt, matches_gt1 = data['gt_matches0'][b].cpu().detach().numpy(), data['gt_matches1'][b].cpu().detach().numpy()
-                matches_gt[matches_gt == len(matches_gt1)] = -1
-                matches_gt1[matches_gt1 == len(matches_gt)] = -1
-                valid_gt = matches_gt > -1
-
-                valid_num = np.sum(valid_gt)
-                # valid_num = pred['rep'][b].cpu().detach().numpy()
-                all_num = len(valid_gt)
-
-
-                if valid_gt.sum() < len(matches_gt)*0.1:
-                    # print('not enough ground truth match, ban the pair')
-                #    loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
-                #    loss.append(loss_torch.cpu().detach().numpy().item())
-                    continue
-
-                mkpts0_gt = bkpts0[valid_gt]
-                mkpts1_gt = bkpts1[matches_gt[valid_gt]]
-                mutual0 = np.arange(len(matches_gt))[valid_gt] == matches_gt1[matches_gt[valid_gt]]
-                # mutual0_inv = 1-mutual0
-                mutual0 = np.arange(len(matches_gt))[valid_gt][mutual0]
-                mutual1 = matches_gt[mutual0]
-                x = np.ones(len(matches_gt1)) == 1
-                x[mutual1] = False               
-                valid_gt1 = matches_gt1 > -1
-
-                gt_idx = np.arange(len(bkpts0))[valid_gt]
-            
-
-                if len(mkpts0) < 4:
-               #     loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
-                #    loss.append(loss_torch.cpu().detach().numpy().item())
-
-                    continue
-                else:
-                    k+=1
-                    T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, data, b) 
-                    kp1_np = np.array([(kp[0], kp[1], kp[2], 1) for kp 
-                                       in bkpts1])
-                                       
-                    bkpts1 = torch.tensor(kp1_np, dtype=torch.double)
-                    tkpts1 = torch.einsum('ki,ij->jk', T, bkpts1.T).to(device)
-                    kpts1[b,:].data.copy_(tkpts1[:,:3].data)
-                    R=T[:3,:3]
-                    t=T[:3,3]
+                ## SVD
+                d_k = kpts0.size(0)
+                R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
+                             scores[:,:256,:256],indices0,indices1)
+           #     R_gt = data['T_gt'] [:,:3,:3].double().to(device)
+           #     T_gt = data['T_gt'] [:,:3,3]
+                loss=[]
+                for b in range(len(data['idx0'])) :
+                    R_b=R[b]
+                    t_b=t[b]
                     R_gt = data['T_gt'] [b,:3,:3].double().to(device)
                     T_gt = data['T_gt'] [b,:3,3]
                     identity = torch.eye(3).to(device)
-                    loss_torch = F.mse_loss(torch.matmul(R.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
-                        + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
+                    loss_torch = F.mse_loss(torch.matmul(R_b.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
+                        + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
                     loss.append(loss_torch.cpu().detach().numpy().item())
-            t_loss =torch.tensor(loss,dtype=torch.double,device=device)
-            #t_loss=torch.tensor(loss)             
-          #  t_loss=loss/len(data['idx0'])
-           # t_loss=t_loss.double()
-            #print(loss.shape)
-            #print(loss_mean.size())
+
+                # identity = torch.eye(3).to(device).unsqueeze(0).repeat(d_k, 1, 1).double().to(device)
+                # loss = F.mse_loss(torch.matmul(R.transpose(2, 1).double().to(device), R_gt), identity).double().to(device) \
+                #     + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
+                # t_loss=loss.double()
+                
+
+                      
             
-        
+    
+            # on parcourt le batch 
+            
+            ################################
+#             loss=[]
+#             k=0
+#             for b in range(len(data['idx0'])):
+#                 bkpts0,bkpts1 = data['keypoints0'][b].cpu().detach().numpy(),data['keypoints1'][b].cpu().detach().numpy()
+#                 matches, matches1=indices0[b].cpu().detach().numpy(),indices1[b].cpu().detach().numpy()
+#                 valid = matches > -1
+#                 mkpts0 = bkpts0[valid]
+#                 mkpts1 = bkpts1[matches[valid]]
+# #                print('Correspondances : ',len(mkpts0))
+
+#                 mutual0 = np.arange(len(matches))[valid] == matches1[matches[valid]]
+#                 mutual0 = np.arange(len(matches))[valid][mutual0]
+#                 mutual1 = matches[mutual0]
+#                 x = np.ones(len(matches1)) == 1
+#                 x[mutual1] = False
+#                 valid1 = matches1 > -1
+#                 # extrakpt1 = bkpts1[valid1 & x]
+#                 # extrakpt0 = bkpts0[matches1[valid1 & x]]
+#                 # mkpts0 = np.vstack((mkpts0, extrakpt0))
+#                 # mkpts1 = np.vstack((mkpts1, extrakpt1))
+
+#                 ## ground truth ##
+#                 matches_gt, matches_gt1 = data['gt_matches0'][b].cpu().detach().numpy(), data['gt_matches1'][b].cpu().detach().numpy()
+#                 matches_gt[matches_gt == len(matches_gt1)] = -1
+#                 matches_gt1[matches_gt1 == len(matches_gt)] = -1
+#                 valid_gt = matches_gt > -1
+
+#                 valid_num = np.sum(valid_gt)
+#                 # valid_num = pred['rep'][b].cpu().detach().numpy()
+#                 all_num = len(valid_gt)
+
+
+#                 if valid_gt.sum() < len(matches_gt)*0.1:
+#                     # print('not enough ground truth match, ban the pair')
+#                 #    loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
+#                 #    loss.append(loss_torch.cpu().detach().numpy().item())
+#                     continue
+
+#                 mkpts0_gt = bkpts0[valid_gt]
+#                 mkpts1_gt = bkpts1[matches_gt[valid_gt]]
+#                 mutual0 = np.arange(len(matches_gt))[valid_gt] == matches_gt1[matches_gt[valid_gt]]
+#                 # mutual0_inv = 1-mutual0
+#                 mutual0 = np.arange(len(matches_gt))[valid_gt][mutual0]
+#                 mutual1 = matches_gt[mutual0]
+#                 x = np.ones(len(matches_gt1)) == 1
+#                 x[mutual1] = False               
+#                 valid_gt1 = matches_gt1 > -1
+
+#                 gt_idx = np.arange(len(bkpts0))[valid_gt]
+            
+
+#                 if len(mkpts0) < 4:
+#                #     loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
+#                 #    loss.append(loss_torch.cpu().detach().numpy().item())
+
+#                     continue
+#                 else:
+#                     k+=1
+#                     T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, data, b) 
+#                     kp1_np = np.array([(kp[0], kp[1], kp[2], 1) for kp 
+#                                        in bkpts1])
+                                       
+#                     bkpts1 = torch.tensor(kp1_np, dtype=torch.double)
+#                     tkpts1 = torch.einsum('ki,ij->jk', T, bkpts1.T).to(device)
+#                     kpts1[b,:].data.copy_(tkpts1[:,:3].data)
+#                     R=T[:3,:3]
+#                     t=T[:3,3]
+#                     R_gt = data['T_gt'] [b,:3,:3].double().to(device)
+#                     T_gt = data['T_gt'] [b,:3,3]
+#                     identity = torch.eye(3).to(device)
+#                     loss_torch = F.mse_loss(torch.matmul(R.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
+#                         + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
+#                     loss.append(loss_torch.cpu().detach().numpy().item())
+#             t_loss =torch.tensor(loss,dtype=torch.double,device=device)
+#             #t_loss=torch.tensor(loss)             
+#           #  t_loss=loss/len(data['idx0'])
+#            # t_loss=t_loss.double()
+#             #print(loss.shape)
+#             #print(loss_mean.size())
+            ####################
+            t_loss =torch.tensor(loss,dtype=torch.double,device=device)
+
             return {
                 'matches0': indices0, # use -1 for invalid match
                 'matches1': indices1, # use -1 for invalid match
@@ -1021,3 +1049,5 @@ if __name__ == '__main__':
         # On applique Superglue
         data=net(pred)
         pred = {**pred, **data}	
+    print(data['loss'])
+    print(data['t_loss'])
