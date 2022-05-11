@@ -130,6 +130,15 @@ parser.add_argument(
 parser.add_argument(
     '--train_step', type=int, default=3,  
     help='Training step when using pointnet: 1,2,3')
+
+
+parser.add_argument(
+    '--train_seq', nargs="+", type=int, default=[4], 
+    help='sequences for train ')
+
+parser.add_argument(
+    '--eval_seq',nargs="+",  type=int, default=[9], 
+    help='sequences for evaluation ')
     
 parser.add_argument(
     '--descriptor_dim',  type=int, default=256, 
@@ -220,8 +229,8 @@ if __name__ == '__main__':
         print('====================\nStart new training')
 
 
-    train_set = SparseDataset(opt, 'train')
-    val_set = SparseDataset(opt, 'val')
+    train_set = SparseDataset(opt,opt.train_seq)
+    val_set = SparseDataset(opt,opt.eval_seq)
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
@@ -261,7 +270,7 @@ if __name__ == '__main__':
             T_Loss = (pred['t_loss'])
             T_Loss = torch.mean(T_Loss)
             # sum
-            tot_loss= 0.1 * T_Loss + Loss
+            tot_loss= 0.01 * T_Loss + Loss
             
             epoch_loss += tot_loss.item()
             tot_loss.backward()
@@ -269,6 +278,7 @@ if __name__ == '__main__':
             # lr_schedule.step()
 
             del Loss, pred, data, i
+        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader))
 
         # validation
 
@@ -292,11 +302,19 @@ if __name__ == '__main__':
                     pred = {**pred, **data}
 
                     Loss = pred['loss']
-                    mean_val_loss.append(Loss) 
+                    # Transformation loss
+                    T_Loss = (pred['t_loss'])
+                    
+                    # sum
+                    tot_loss= 0.01 * T_Loss + Loss
+                    
+                    mean_val_loss.append(tot_loss) 
+                    
          
             timeconsume = time.time() - begin
             mean_val_loss = torch.mean(torch.stack(mean_val_loss)).item()
             epoch_loss /= len(train_loader)
+
             print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
             checkpoint = {
                     "net": net.state_dict(),
