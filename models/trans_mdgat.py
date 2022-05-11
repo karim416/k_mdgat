@@ -531,7 +531,7 @@ class MDGAT(nn.Module):
         # kpts0 = normalize_keypoints(kpts0, data['cloud0'].shape)
         # kpts1 = normalize_keypoints(kpts1, data['cloud1'].shape)
         
-        loop = 3 if self.transform else 1
+        loop = 3 if (self.transform and self.training)  else 1
         loss_tot=[]
         for j in range(loop) :
 

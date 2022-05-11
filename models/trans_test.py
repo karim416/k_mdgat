@@ -318,7 +318,7 @@ if __name__ == '__main__':
                     T_error = torch.einsum('ab,bc->ac', torch.inverse(T_pred[b]), T_gt).cpu().numpy()
                     trans_error = np.linalg.norm(T_error[:3, 3])
                     f_theta = (T_error[0, 0] + T_error[1, 1] + T_error[2, 2] -1) * 0.5
-                    # f_theta = max(min(f_theta, 1), -1)
+                    f_theta = max(min(f_theta, 1), -1)
                     rot_error = np.arccos(f_theta)
                     '''calculate pose error, inlier and failure rate'''
                     if opt.calculate_pose:
@@ -346,8 +346,17 @@ if __name__ == '__main__':
                     else:
                         T=[]
                         print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} '.format(
-                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
-
+                        idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
+                        precision_array.append(precision)
+                        accuracy_array.append(accuracy)
+                        recall_array.append(recall)
+                        trans_error_array.append(trans_error)
+                        rot_error_array.append(rot_error)
+                        fp_rate_array.append(fp_rate)
+                        tp_rate_array.append(tp_rate)
+                        tp_rate2_array.append(tp_rate2)
+                        tm_a.append(tm)
+                        fm_a.append(fm)
                     if opt.visualize:
                         plot_match(pc0, pc1, kpts0, kpts1, mkpts0, mkpts1, mkpts0_gt, mkpts1_gt, matches, mconf, true_positive, false_positive, T, opt.vis_line_width)
 
