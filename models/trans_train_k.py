@@ -141,11 +141,11 @@ parser.add_argument(
     help='sequences for evaluation ')
     
 parser.add_argument(
-    '--descriptor_dim',  type=int, default=256, 
+    '--descriptor_dim',  type=int, default=128, 
     help=' features dim ')
     
 parser.add_argument(
-    '--embed_dim',  type=int, default=256, 
+    '--embed_dim',  type=int, default=128, 
     help='DGCNN output dim ')
 
 
@@ -205,7 +205,9 @@ if __name__ == '__main__':
                 'triplet_loss_gamma': opt.triplet_loss_gamma,
                 'train_step':opt.train_step,
                 'L':opt.l,
-                'points_transform' : opt.points_transform
+                'points_transform' : opt.points_transform,
+                'descriptor_dim' : opt.descriptor_dim,
+                'embed_dim' : opt.embed_dim,
             }
         }
     
@@ -257,7 +259,7 @@ if __name__ == '__main__':
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to(device))
             
-            data = net(pred)
+            data = net(pred,epoch)
 
             for k, v in pred.items(): 
                 pred[k] = v[0]
@@ -283,9 +285,10 @@ if __name__ == '__main__':
             tot_loss.backward()
             optimizer.step()
             # lr_schedule.step()
-
-            del Loss, pred, data, i
-        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader))
+            
+            del pred, data, i
+        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
+              , ' T loss = ' , 0.01 * T_Loss/len(train_loader)  , ' Gap loss = ', Loss/len(train_loader) )
 
         # validation
 
@@ -305,7 +308,7 @@ if __name__ == '__main__':
                                 pred[k] = Variable(torch.stack(pred[k]).cuda().detach())
                             # print(type(pred[k]))   #pytorch.tensor
                     
-                    data = net(pred) 
+                    data = net(pred,epoch) 
                     pred = {**pred, **data}
 
                     Loss = pred['loss']

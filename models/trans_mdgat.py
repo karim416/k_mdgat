@@ -507,7 +507,7 @@ class MDGAT(nn.Module):
         print('Features size : ', self.config['embed_dim'])
         print('--------------------------------------\n')
 
-    def forward(self, data):
+    def forward(self, data ,epoch):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
@@ -759,7 +759,20 @@ class MDGAT(nn.Module):
                 loss_mean2 = torch.mean(2*torch.log(torch.sum(gap_loss, dim=1)+1), dim=1)
     
                 loss_mean = (loss_mean+loss_mean2)/2
+                ''' Calcul de la transformation'''
+                if epoch  < 150:
+                    t_loss =  torch.full(loss_mean.size(), 1000.,device=device , dtype=torch.double)
+                    return {
+                            'matches0': indices0, # use -1 for invalid match
+                            'matches1': indices1, # use -1 for invalid match
+                            'matching_scores0': mscores0,
+                            'matching_scores1': mscores1,
+                            'loss': loss_mean,
+                            't_loss': t_loss
+                            # 'skip_train': False
+                        }
                 ## SVD
+
                 d_k = kpts0.size(0)
                 R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
                              scores[:,:256,:256],indices0,indices1)
@@ -794,7 +807,9 @@ class MDGAT(nn.Module):
             'matching_scores0': mscores0,
             'matching_scores1': mscores1,
             'loss': loss_mean,
-            't_loss': t_loss
+            't_loss': t_loss,
+            'R' : R,
+            't' :t
             # 'skip_train': False
         }
      
@@ -989,7 +1004,19 @@ if __name__ == '__main__':
                 else:
                     pred[k] = Variable(torch.stack(pred[k]).to(device))
         # On applique Superglue
-        data=net(pred)
+        data=net(pred,200)
         pred = {**pred, **data}	
-    print(data['loss'])
-    print(data['t_loss'])
+    # print(data['loss'])
+    # print(data['t_loss'])
+    R_pred = data['R']
+    t_pred = data['t'].unsqueeze(-1)
+    T_pred = torch.cat((R_pred,t_pred),2).double().to(device)
+    print(R_pred[0])
+    print(t_pred[0])
+    # last row
+    line=torch.tensor([0,0,0,1],dtype=torch.double).repeat(len(R_pred),1,1).to(device)
+    # # transformation
+    T_pred=torch.cat((T_pred,line),1).double().to(device)
+    print(T_pred.size())
+    print(T_pred[0])
+
