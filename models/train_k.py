@@ -259,6 +259,7 @@ if __name__ == '__main__':
             # lr_schedule.step()
 
             del Loss, pred, data, i
+        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader))
 
         # validation
 
