@@ -440,7 +440,8 @@ class MDGAT(nn.Module):
         'descritor_encoder': [64, 128],
         'GNN_layers': ['self', 'cross'] * 9,
         'sinkhorn_iterations': 100,
-        'match_threshold': 0.2
+        'match_threshold': 0.2,
+        'points_transform' : False
     }
 
     def __init__(self, config):
@@ -497,6 +498,7 @@ class MDGAT(nn.Module):
         self.triplet_loss_gamma = config['triplet_loss_gamma']
         self.train_step = config['train_step']
         self.SVD = SVDHead()
+        self.transform = config['points_transform']
 
 
         print('\n----------MDGAT initialized-----------')
@@ -505,7 +507,7 @@ class MDGAT(nn.Module):
         print('Features size : ', self.config['embed_dim'])
         print('--------------------------------------\n')
 
-    def forward(self, data):
+    def forward(self, data ,epoch):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
@@ -529,10 +531,10 @@ class MDGAT(nn.Module):
         # kpts0 = normalize_keypoints(kpts0, data['cloud0'].shape)
         # kpts1 = normalize_keypoints(kpts1, data['cloud1'].shape)
         
-        loop = 3 if self.training else 1
-
+        loop = 3 if self.transform else 1
+        loss_tot=[]
         for j in range(loop) :
-            
+
             if self.descriptor == 'FPFH' or self.descriptor == 'FPFH_gloabal':
                 desc0, desc1 = data['descriptors0'].double(), data['descriptors1'].double()
                 '''Keypoint MLP encoder.'''
@@ -757,12 +759,28 @@ class MDGAT(nn.Module):
                 loss_mean2 = torch.mean(2*torch.log(torch.sum(gap_loss, dim=1)+1), dim=1)
     
                 loss_mean = (loss_mean+loss_mean2)/2
+                ''' Calcul de la transformation'''
+                if epoch  < 150:
+                    t_loss =  torch.full(loss_mean.size(), 100.,device=device , dtype=torch.double)
+                    return {
+                            'matches0': indices0, # use -1 for invalid match
+                            'matches1': indices1, # use -1 for invalid match
+                            'matching_scores0': mscores0,
+                            'matching_scores1': mscores1,
+                            'loss': loss_mean,
+                            't_loss': t_loss
+                            # 'skip_train': False
+                        }
                 ## SVD
+
                 d_k = kpts0.size(0)
                 R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
                              scores[:,:256,:256],indices0,indices1)
            #     R_gt = data['T_gt'] [:,:3,:3].double().to(device)
            #     T_gt = data['T_gt'] [:,:3,3]
+
+                transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
+                kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
                 loss=[]
                 for b in range(len(data['idx0'])) :
                     R_b=R[b]
@@ -774,110 +792,25 @@ class MDGAT(nn.Module):
                         + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
                     loss.append(loss_torch.cpu().detach().numpy().item())
 
-                # identity = torch.eye(3).to(device).unsqueeze(0).repeat(d_k, 1, 1).double().to(device)
-                # loss = F.mse_loss(torch.matmul(R.transpose(2, 1).double().to(device), R_gt), identity).double().to(device) \
-                #     + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
-                # t_loss=loss.double()
-                
+                loss_tot.append(loss)
 
-                      
-            
-    
-            # on parcourt le batch 
-            
-            ################################
-#             loss=[]
-#             k=0
-#             for b in range(len(data['idx0'])):
-#                 bkpts0,bkpts1 = data['keypoints0'][b].cpu().detach().numpy(),data['keypoints1'][b].cpu().detach().numpy()
-#                 matches, matches1=indices0[b].cpu().detach().numpy(),indices1[b].cpu().detach().numpy()
-#                 valid = matches > -1
-#                 mkpts0 = bkpts0[valid]
-#                 mkpts1 = bkpts1[matches[valid]]
-# #                print('Correspondances : ',len(mkpts0))
+        if self.transform: 
+            t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
+            t_loss = torch.mean(t_loss,0).to(device)
 
-#                 mutual0 = np.arange(len(matches))[valid] == matches1[matches[valid]]
-#                 mutual0 = np.arange(len(matches))[valid][mutual0]
-#                 mutual1 = matches[mutual0]
-#                 x = np.ones(len(matches1)) == 1
-#                 x[mutual1] = False
-#                 valid1 = matches1 > -1
-#                 # extrakpt1 = bkpts1[valid1 & x]
-#                 # extrakpt0 = bkpts0[matches1[valid1 & x]]
-#                 # mkpts0 = np.vstack((mkpts0, extrakpt0))
-#                 # mkpts1 = np.vstack((mkpts1, extrakpt1))
+        else:
+            t_loss =torch.tensor(loss,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
 
-#                 ## ground truth ##
-#                 matches_gt, matches_gt1 = data['gt_matches0'][b].cpu().detach().numpy(), data['gt_matches1'][b].cpu().detach().numpy()
-#                 matches_gt[matches_gt == len(matches_gt1)] = -1
-#                 matches_gt1[matches_gt1 == len(matches_gt)] = -1
-#                 valid_gt = matches_gt > -1
-
-#                 valid_num = np.sum(valid_gt)
-#                 # valid_num = pred['rep'][b].cpu().detach().numpy()
-#                 all_num = len(valid_gt)
-
-
-#                 if valid_gt.sum() < len(matches_gt)*0.1:
-#                     # print('not enough ground truth match, ban the pair')
-#                 #    loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
-#                 #    loss.append(loss_torch.cpu().detach().numpy().item())
-#                     continue
-
-#                 mkpts0_gt = bkpts0[valid_gt]
-#                 mkpts1_gt = bkpts1[matches_gt[valid_gt]]
-#                 mutual0 = np.arange(len(matches_gt))[valid_gt] == matches_gt1[matches_gt[valid_gt]]
-#                 # mutual0_inv = 1-mutual0
-#                 mutual0 = np.arange(len(matches_gt))[valid_gt][mutual0]
-#                 mutual1 = matches_gt[mutual0]
-#                 x = np.ones(len(matches_gt1)) == 1
-#                 x[mutual1] = False               
-#                 valid_gt1 = matches_gt1 > -1
-
-#                 gt_idx = np.arange(len(bkpts0))[valid_gt]
-            
-
-#                 if len(mkpts0) < 4:
-#                #     loss_torch=torch.tensor(200.,dtype=torch.float64).to(device)
-#                 #    loss.append(loss_torch.cpu().detach().numpy().item())
-
-#                     continue
-#                 else:
-#                     k+=1
-#                     T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, data, b) 
-#                     kp1_np = np.array([(kp[0], kp[1], kp[2], 1) for kp 
-#                                        in bkpts1])
-                                       
-#                     bkpts1 = torch.tensor(kp1_np, dtype=torch.double)
-#                     tkpts1 = torch.einsum('ki,ij->jk', T, bkpts1.T).to(device)
-#                     kpts1[b,:].data.copy_(tkpts1[:,:3].data)
-#                     R=T[:3,:3]
-#                     t=T[:3,3]
-#                     R_gt = data['T_gt'] [b,:3,:3].double().to(device)
-#                     T_gt = data['T_gt'] [b,:3,3]
-#                     identity = torch.eye(3).to(device)
-#                     loss_torch = F.mse_loss(torch.matmul(R.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
-#                         + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
-#                     loss.append(loss_torch.cpu().detach().numpy().item())
-#             t_loss =torch.tensor(loss,dtype=torch.double,device=device)
-#             #t_loss=torch.tensor(loss)             
-#           #  t_loss=loss/len(data['idx0'])
-#            # t_loss=t_loss.double()
-#             #print(loss.shape)
-#             #print(loss_mean.size())
-            ####################
-            t_loss =torch.tensor(loss,dtype=torch.double,device=device)
-
-            return {
-                'matches0': indices0, # use -1 for invalid match
-                'matches1': indices1, # use -1 for invalid match
-                'matching_scores0': mscores0,
-                'matching_scores1': mscores1,
-                'loss': loss_mean,
-                't_loss': t_loss
-                # 'skip_train': False
-            }
-         
+        return {
+            'matches0': indices0, # use -1 for invalid match
+            'matches1': indices1, # use -1 for invalid match
+            'matching_scores0': mscores0,
+            'matching_scores1': mscores1,
+            'loss': loss_mean,
+            't_loss': t_loss
+            # 'skip_train': False
+        }
+     
 
 parser = argparse.ArgumentParser(
     description='Point cloud matching training ',
@@ -1009,6 +942,14 @@ parser.add_argument(
     '--embed_dim',  type=int, default=256, 
     help='DGCNN output dim ')
 
+
+
+parser.add_argument(
+    '--points_transform', type=bool, default=False,  # True False
+    help='If applies [R,t] to source set ')
+
+
+
 if __name__ == '__main__':
     
     from load_data import SparseDataset
@@ -1030,12 +971,13 @@ if __name__ == '__main__':
                 'train_step':opt.train_step,
                 'L':opt.l,
                 'descriptor_dim' : opt.descriptor_dim,
-                'embed_dim' : opt.embed_dim
+                'embed_dim' : opt.embed_dim,
+                'points_transform' : opt.points_transform
                 
             }
         }
     test_set = SparseDataset(opt, opt.test_seq)
-    test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
+    test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
 
     net = MDGAT(config.get('net', {}))
     
@@ -1060,7 +1002,7 @@ if __name__ == '__main__':
                 else:
                     pred[k] = Variable(torch.stack(pred[k]).to(device))
         # On applique Superglue
-        data=net(pred)
+        data=net(pred,0)
         pred = {**pred, **data}	
     print(data['loss'])
     print(data['t_loss'])

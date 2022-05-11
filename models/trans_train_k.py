@@ -147,6 +147,12 @@ parser.add_argument(
 parser.add_argument(
     '--embed_dim',  type=int, default=256, 
     help='DGCNN output dim ')
+
+
+parser.add_argument(
+    '--points_transform', type=bool, default=False,  # True False
+    help='If applies [R,t] to source set ')
+
         
 if __name__ == '__main__':
     opt = parser.parse_args()
@@ -198,7 +204,8 @@ if __name__ == '__main__':
                 'mutual_check': opt.mutual_check,
                 'triplet_loss_gamma': opt.triplet_loss_gamma,
                 'train_step':opt.train_step,
-                'L':opt.l
+                'L':opt.l,
+                'points_transform' : opt.points_transform
             }
         }
     
@@ -250,7 +257,7 @@ if __name__ == '__main__':
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to(device))
             
-            data = net(pred)
+            data = net(pred,epoch)
 
             for k, v in pred.items(): 
                 pred[k] = v[0]
@@ -276,9 +283,10 @@ if __name__ == '__main__':
             tot_loss.backward()
             optimizer.step()
             # lr_schedule.step()
-
-            del Loss, pred, data, i
-        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader))
+            
+            del pred, data, i
+        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
+              , ' T loss = ' , 0.01 * T_Loss/len(train_loader)  , ' Gap loss = ', Loss/len(train_loader) )
 
         # validation
 
@@ -298,7 +306,7 @@ if __name__ == '__main__':
                                 pred[k] = Variable(torch.stack(pred[k]).cuda().detach())
                             # print(type(pred[k]))   #pytorch.tensor
                     
-                    data = net(pred) 
+                    data = net(pred,epoch) 
                     pred = {**pred, **data}
 
                     Loss = pred['loss']
