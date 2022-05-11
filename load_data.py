@@ -43,6 +43,10 @@ def make_dataset_kitti_distance(txt_path, mode):
             seq_list = [8]
         elif mode == 'test':
             seq_list = [10]
+            
+        elif type(mode[0])==int:
+            seq_list=mode
+            
         else:
             raise Exception('Invalid mode.')
 

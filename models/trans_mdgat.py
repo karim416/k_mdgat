@@ -989,6 +989,19 @@ parser.add_argument(
     help='Training step when using pointnet: 1,2,3')
 
 parser.add_argument(
+    '--train_seq', nargs="+", type=int, default=[4], 
+    help='sequences for train ')
+
+parser.add_argument(
+    '--eval_seq',nargs="+",  type=int, default=[9], 
+    help='sequences for evaluation ')
+
+parser.add_argument(
+    '--test_seq',nargs="+",  type=int, default=[8], 
+    help='sequences for evaluation ')
+
+
+parser.add_argument(
     '--descriptor_dim',  type=int, default=256, 
     help=' features dim ')
 
@@ -1021,7 +1034,7 @@ if __name__ == '__main__':
                 
             }
         }
-    test_set = SparseDataset(opt, 'val')
+    test_set = SparseDataset(opt, opt.test_seq)
     test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
 
     net = MDGAT(config.get('net', {}))

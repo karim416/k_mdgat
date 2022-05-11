@@ -132,4 +132,3 @@ if __name__ == '__main__':
     t=svd(src,src,scores,matches,matches)
     # print(t[0][1])
     # print(t[1][1])
-
