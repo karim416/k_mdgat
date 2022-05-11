@@ -130,6 +130,14 @@ parser.add_argument(
 parser.add_argument(
     '--train_step', type=int, default=3,  
     help='Training step when using pointnet: 1,2,3')
+
+parser.add_argument(
+    '--train_seq', nargs="+", type=int, default=[4], 
+    help='sequences for train ')
+
+parser.add_argument(
+    '--eval_seq',nargs="+",  type=int, default=[9], 
+    help='sequences for evaluation ')
     
 parser.add_argument(
     '--descriptor_dim',  type=int, default=256, 
@@ -220,8 +228,8 @@ if __name__ == '__main__':
         print('====================\nStart new training')
 
 
-    train_set = SparseDataset(opt, 'train')
-    val_set = SparseDataset(opt, 'val')
+    train_set = SparseDataset(opt, opt.train_seq)
+    val_set = SparseDataset(opt, opt.eval_seq)
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)

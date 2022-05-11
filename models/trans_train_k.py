@@ -147,6 +147,12 @@ parser.add_argument(
 parser.add_argument(
     '--embed_dim',  type=int, default=256, 
     help='DGCNN output dim ')
+
+
+parser.add_argument(
+    '--points_transform', type=bool, default=False,  # True False
+    help='If applies [R,t] to source set ')
+
         
 if __name__ == '__main__':
     opt = parser.parse_args()
@@ -198,7 +204,8 @@ if __name__ == '__main__':
                 'mutual_check': opt.mutual_check,
                 'triplet_loss_gamma': opt.triplet_loss_gamma,
                 'train_step':opt.train_step,
-                'L':opt.l
+                'L':opt.l,
+                'points_transform' : opt.points_transform
             }
         }
     
