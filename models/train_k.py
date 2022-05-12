@@ -180,7 +180,7 @@ if __name__ == '__main__':
         lr = checkpoint['lr_schedule']  # lr = opt.learning_rate # lr = checkpoint['lr_schedule']
         start_epoch = checkpoint['epoch'] + 1 
         loss = checkpoint['loss']
-        best_loss = 1
+        best_loss = loss
     else:
         start_epoch = 1
         best_loss = 1e6

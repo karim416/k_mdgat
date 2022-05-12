@@ -154,11 +154,15 @@ parser.add_argument(
     '--points_transform', type=bool, default=False,  # True False
     help='If applies [R,t] to source set ')
 
+parser.add_argument(
+    '--test_seq', nargs="+", type=int, default=[4], 
+    help='sequences for test ')
+
 if __name__ == '__main__':
     opt = parser.parse_args()
     from load_data import SparseDataset    
 
-    test_set = SparseDataset(opt, 'test')
+    test_set = SparseDataset(opt, opt.test_seq)
     test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
  
     path_checkpoint = opt.resume_model  
@@ -344,19 +348,23 @@ if __name__ == '__main__':
                             print('idx{}, inlier {}, rep {:.3f}， inlier_ratio {:.3f}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}, trans_error {:.3f}, rot_error {:.3f} '.format(
                                 idx, inlier, repeatibilty,inlier_ratio, precision, accuracy, recall, fp_rate, tp_rate, trans_error, rot_error))
                     else:
-                        T=[]
-                        print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} '.format(
-                        idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
-                        precision_array.append(precision)
-                        accuracy_array.append(accuracy)
-                        recall_array.append(recall)
-                        trans_error_array.append(trans_error)
-                        rot_error_array.append(rot_error)
-                        fp_rate_array.append(fp_rate)
-                        tp_rate_array.append(tp_rate)
-                        tp_rate2_array.append(tp_rate2)
-                        tm_a.append(tm)
-                        fm_a.append(fm)
+                        
+                        if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
+                            fail+=1
+                            print('registration fail')
+                        else : 
+                            print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} '.format(
+                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
+                            precision_array.append(precision)
+                            accuracy_array.append(accuracy)
+                            recall_array.append(recall)
+                            trans_error_array.append(trans_error)
+                            rot_error_array.append(rot_error)
+                            fp_rate_array.append(fp_rate)
+                            tp_rate_array.append(tp_rate)
+                            tp_rate2_array.append(tp_rate2)
+                            tm_a.append(tm)
+                            fm_a.append(fm)
                     if opt.visualize:
                         plot_match(pc0, pc1, kpts0, kpts1, mkpts0, mkpts1, mkpts0_gt, mkpts1_gt, matches, mconf, true_positive, false_positive, T, opt.vis_line_width)
 

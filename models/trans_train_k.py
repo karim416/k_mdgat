@@ -279,7 +279,7 @@ if __name__ == '__main__':
             T_Loss = (pred['t_loss'])
             T_Loss = torch.mean(T_Loss)
             # sum
-            tot_loss= 0.1 * T_Loss + Loss
+            tot_loss= 1e-3 * T_Loss + Loss
             
             epoch_loss += tot_loss.item()
             tot_loss.backward()
@@ -287,8 +287,8 @@ if __name__ == '__main__':
             # lr_schedule.step()
             
             del pred, data, i
-        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
-              , ' T loss = ' , 0.1 * T_Loss/len(train_loader)  , ' Gap loss = ', Loss/len(train_loader) )
+        print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
+              , ' T loss = ' , 1e-3 * T_Loss.item()/len(train_loader)  , ' Gap loss = ', Loss.item()/len(train_loader) )
 
         # validation
 
@@ -316,7 +316,7 @@ if __name__ == '__main__':
                     T_Loss = (pred['t_loss'])
                     
                     # sum
-                    tot_loss= 0.1 * T_Loss + Loss
+                    tot_loss= 1e-3 * T_Loss + Loss
                     
                     mean_val_loss.append(tot_loss) 
                     
