@@ -531,7 +531,7 @@ class MDGAT(nn.Module):
         # kpts0 = normalize_keypoints(kpts0, data['cloud0'].shape)
         # kpts1 = normalize_keypoints(kpts1, data['cloud1'].shape)
         
-        loop = 3 if self.transform else 1
+        loop = 3 if (self.transform and self.training)  else 1
         loss_tot=[]
         for j in range(loop) :
 
@@ -761,7 +761,7 @@ class MDGAT(nn.Module):
                 loss_mean = (loss_mean+loss_mean2)/2
                 ''' Calcul de la transformation'''
                 if epoch  < 150:
-                    t_loss =  torch.full(loss_mean.size(), 100.,device=device , dtype=torch.double)
+                    t_loss =  torch.full(loss_mean.size(), 1000.,device=device , dtype=torch.double)
                     return {
                             'matches0': indices0, # use -1 for invalid match
                             'matches1': indices1, # use -1 for invalid match
@@ -807,7 +807,9 @@ class MDGAT(nn.Module):
             'matching_scores0': mscores0,
             'matching_scores1': mscores1,
             'loss': loss_mean,
-            't_loss': t_loss
+            't_loss': t_loss,
+            'R' : R,
+            't' :t
             # 'skip_train': False
         }
      
@@ -821,7 +823,7 @@ parser.add_argument(
     help='Number of Sinkhorn iterations')
 
 parser.add_argument(
-    '--learning_rate', type=int, default=0.0001,  #0.0001
+    '--learning_rate', type=float, default=0.0001,  #0.0001
     help='Learning rate')
 
 parser.add_argument(
@@ -1002,7 +1004,19 @@ if __name__ == '__main__':
                 else:
                     pred[k] = Variable(torch.stack(pred[k]).to(device))
         # On applique Superglue
-        data=net(pred,0)
+        data=net(pred,200)
         pred = {**pred, **data}	
-    print(data['loss'])
-    print(data['t_loss'])
+    # print(data['loss'])
+    # print(data['t_loss'])
+    R_pred = data['R']
+    t_pred = data['t'].unsqueeze(-1)
+    T_pred = torch.cat((R_pred,t_pred),2).double().to(device)
+    print(R_pred[0])
+    print(t_pred[0])
+    # last row
+    line=torch.tensor([0,0,0,1],dtype=torch.double).repeat(len(R_pred),1,1).to(device)
+    # # transformation
+    T_pred=torch.cat((T_pred,line),1).double().to(device)
+    print(T_pred.size())
+    print(T_pred[0])
+

@@ -31,7 +31,7 @@ parser.add_argument(
     help='Number of Sinkhorn iterations')
 
 parser.add_argument(
-    '--learning_rate', type=int, default=0.0001,  #0.0001
+    '--learning_rate', type=float, default=0.0001,  #0.0001
     help='Learning rate')
 
 parser.add_argument(
@@ -141,11 +141,11 @@ parser.add_argument(
     help='sequences for evaluation ')
     
 parser.add_argument(
-    '--descriptor_dim',  type=int, default=256, 
+    '--descriptor_dim',  type=int, default=128, 
     help=' features dim ')
     
 parser.add_argument(
-    '--embed_dim',  type=int, default=256, 
+    '--embed_dim',  type=int, default=128, 
     help='DGCNN output dim ')
 
 
@@ -205,7 +205,9 @@ if __name__ == '__main__':
                 'triplet_loss_gamma': opt.triplet_loss_gamma,
                 'train_step':opt.train_step,
                 'L':opt.l,
-                'points_transform' : opt.points_transform
+                'points_transform' : opt.points_transform,
+                'descriptor_dim' : opt.descriptor_dim,
+                'embed_dim' : opt.embed_dim,
             }
         }
     
@@ -245,6 +247,8 @@ if __name__ == '__main__':
     mean_loss = []
     for epoch in range(start_epoch, opt.epoch+1):
         epoch_loss = 0
+        epoch_gap_loss = 0
+        epoch_t_loss = 0
         current_loss = 0
         net.double().train() 
         train_loader = tqdm(train_loader) 
@@ -277,16 +281,17 @@ if __name__ == '__main__':
             T_Loss = (pred['t_loss'])
             T_Loss = torch.mean(T_Loss)
             # sum
-            tot_loss= 0.01 * T_Loss + Loss
-            
+            tot_loss= 1e-2 * T_Loss + Loss
+            epoch_gap_loss += Loss.item()
+            epoch_t_loss += 1e-2 * T_Loss.item()
             epoch_loss += tot_loss.item()
             tot_loss.backward()
             optimizer.step()
             # lr_schedule.step()
             
             del pred, data, i
-        print('epoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
-              , ' T loss = ' , 0.01 * T_Loss/len(train_loader)  , ' Gap loss = ', Loss/len(train_loader) )
+        print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
+              , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
 
         # validation
 
@@ -314,7 +319,7 @@ if __name__ == '__main__':
                     T_Loss = (pred['t_loss'])
                     
                     # sum
-                    tot_loss= 0.01 * T_Loss + Loss
+                    tot_loss= 1e-2 * T_Loss + Loss
                     
                     mean_val_loss.append(tot_loss) 
                     

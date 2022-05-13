@@ -1,4 +1,11 @@
-#encoding: utf-8
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed May 11 17:29:00 2022
+
+@author: spi-2017-12
+"""
+
 import argparse
 import numpy as np
 import torch
@@ -17,7 +24,7 @@ import torch.multiprocessing
 import time
 from utils.utils_test import (calculate_error, plot_match)
 from models.superglue import SuperGlue
-from models.mdgat import MDGAT
+from trans_mdgat import MDGAT
 from scipy.spatial.distance import cdist
 
 
@@ -39,7 +46,7 @@ parser.add_argument(
     help='the width of the match line open3d visualization')
 
 parser.add_argument(
-    '--calculate_pose', type=bool, default=True,
+    '--calculate_pose', type=bool, default=False,
     help='Registrate the point cloud using the matched point pairs and calculate the pose')
 
 parser.add_argument(
@@ -75,7 +82,7 @@ parser.add_argument(
     help='Path to the directory of kepoints.')
 
 parser.add_argument(
-    '--resume_model', type=str, default=parentdir+'/pre-trained/best_model2.pth',
+    '--resume_model', type=str, default=parentdir+'/pre-trained/trans_best_model.pth',
     help='Number of skip frames for training')
 
 parser.add_argument(
@@ -136,24 +143,26 @@ parser.add_argument(
     help='Training step when using pointnet: 1,2,3')
 
 parser.add_argument(
-    '--descriptor_dim',  type=int, default=256, 
+    '--descriptor_dim',  type=int, default=128, 
     help=' features dim ')
 
 parser.add_argument(
-    '--embed_dim',  type=int, default=256, 
+    '--embed_dim',  type=int, default=128, 
     help='DGCNN output dim ')
-
 
 parser.add_argument(
     '--points_transform', type=bool, default=False,  # True False
     help='If applies [R,t] to source set ')
 
+parser.add_argument(
+    '--test_seq', nargs="+", type=int, default=[4], 
+    help='sequences for test ')
 
 if __name__ == '__main__':
     opt = parser.parse_args()
     from load_data import SparseDataset    
 
-    test_set = SparseDataset(opt, 'test')
+    test_set = SparseDataset(opt, opt.test_seq)
     test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
  
     path_checkpoint = opt.resume_model  
@@ -175,7 +184,7 @@ if __name__ == '__main__':
             'descriptor_dim' : opt.descriptor_dim,
             'embed_dim' : opt.embed_dim,
             'points_transform' : opt.points_transform
-                
+
         }
     }
     if opt.net == 'superglue':
@@ -227,15 +236,10 @@ if __name__ == '__main__':
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to('cpu').detach())
             
-            data = net(pred) 
+            data = net(pred,200) 
             pred = {**pred, **data}	
 #            print(pred['gt_matches0'])
             for b in range(len(pred['idx0'])):
-                '''If you got KITTI dataset, load the point cloud for better visualization'''
-                # pc0_path = os.path.join('/home/chenghao/Mount/Dataset/KITTI_odometry/preprocess-undownsample-n8', pred['sequence'][b], '%06d.bin'%pred['idx0'][b])
-                # pc1_path = os.path.join('/home/chenghao/Mount/Dataset/KITTI_odometry/preprocess-undownsample-n8', pred['sequence'][b], '%06d.bin'%pred['idx1'][b])
-                # pc0, pc1 = np.fromfile(pc0_path, dtype=np.float32), np.fromfile(pc1_path, dtype=np.float32)
-                # pc0, pc1 = pc0.reshape(-1, 8), pc1.reshape(-1, 8)
                 pc0, pc1 = [],[]
 
                 kpts0, kpts1 = pred['keypoints0'][b].cpu().numpy(), pred['keypoints1'][b].cpu().numpy()
@@ -244,8 +248,6 @@ if __name__ == '__main__':
                 valid = matches > -1
                 mkpts0 = kpts0[valid]
                 mkpts1 = kpts1[matches[valid]]
- #               print(matches)
- #               print(valid)
                 mconf = conf[valid]
 
                 mutual0 = np.arange(len(matches))[valid] == matches1[matches[valid]]
@@ -254,11 +256,6 @@ if __name__ == '__main__':
                 x = np.ones(len(matches1)) == 1
                 x[mutual1] = False
                 valid1 = matches1 > -1
-                # extrakpt1 = kpts1[valid1 & x]
-                # extrakpt0 = kpts0[matches1[valid1 & x]]
-                # mkpts0 = np.vstack((mkpts0, extrakpt0))
-                # mkpts1 = np.vstack((mkpts1, extrakpt1))
-
                 mconf = conf[valid]
                 # mscores
 
@@ -289,12 +286,6 @@ if __name__ == '__main__':
                 x = np.ones(len(matches_gt1)) == 1
                 x[mutual1] = False               
                 valid_gt1 = matches_gt1 > -1
-                # extrakpt1 = kpts1[valid_gt1 & x]
-                # extrakpt0 = kpts0[matches_gt1[valid_gt1 & x]]
-                # mkpts0_gt = np.vstack((mkpts0_gt, extrakpt0))
-                # mkpts1_gt = np.vstack((mkpts1_gt, extrakpt1))
-
-
                 mscores_gt = pred['scores0'][b].cpu().numpy()[valid_gt]
                 gt_idx = np.arange(len(kpts0))[valid_gt]
             
@@ -318,9 +309,24 @@ if __name__ == '__main__':
                     fp_rate = np.sum(false_positive)/np.sum(matches_gt==-1)
                     tp_rate = np.sum([valid[i] and (matches_gt[i]>-1) for i in range(len(kpts0))])/np.sum(matches_gt > -1)
                     tp_rate2 = np.sum(true_positive)/np.sum(matches_gt > -1)
-                    
+                    # Transformation
+                    R_pred = pred['R']
+                    t_pred = pred['t'].unsqueeze(-1)
+                    T_pred = torch.cat((R_pred,t_pred),2).double().to(device)
+                    # last row
+                    line=torch.tensor([0,0,0,1],dtype=torch.double).repeat(len(R_pred),1,1).to(device)
+                    # # transformation
+                    T_pred=torch.cat((T_pred,line),1).double().to(device)
+
+                    T_gt = pred['T_gt'][b].double().to(device)
+                    T_error = torch.einsum('ab,bc->ac', torch.inverse(T_pred[b]), T_gt).cpu().numpy()
+                    trans_error = np.linalg.norm(T_error[:3, 3])
+                    f_theta = (T_error[0, 0] + T_error[1, 1] + T_error[2, 2] -1) * 0.5
+                    f_theta = max(min(f_theta, 1), -1)
+                    rot_error = np.arccos(f_theta)
                     '''calculate pose error, inlier and failure rate'''
                     if opt.calculate_pose:
+                        
                         T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, pred, b) 
 
                         if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
@@ -339,15 +345,26 @@ if __name__ == '__main__':
                             tp_rate2_array.append(tp_rate2)
                             tm_a.append(tm)
                             fm_a.append(fm)
-                            # else:
-                            #     baned_data+=1
                             print('idx{}, inlier {}, rep {:.3f}， inlier_ratio {:.3f}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}, trans_error {:.3f}, rot_error {:.3f} '.format(
                                 idx, inlier, repeatibilty,inlier_ratio, precision, accuracy, recall, fp_rate, tp_rate, trans_error, rot_error))
                     else:
-                        T=[]
-                        print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}'.format(
-                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate))
-
+                        
+                        if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
+                            fail+=1
+                            print('registration fail')
+                        else : 
+                            print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} '.format(
+                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
+                            precision_array.append(precision)
+                            accuracy_array.append(accuracy)
+                            recall_array.append(recall)
+                            trans_error_array.append(trans_error)
+                            rot_error_array.append(rot_error)
+                            fp_rate_array.append(fp_rate)
+                            tp_rate_array.append(tp_rate)
+                            tp_rate2_array.append(tp_rate2)
+                            tm_a.append(tm)
+                            fm_a.append(fm)
                     if opt.visualize:
                         plot_match(pc0, pc1, kpts0, kpts1, mkpts0, mkpts1, mkpts0_gt, mkpts1_gt, matches, mconf, true_positive, false_positive, T, opt.vis_line_width)
 
