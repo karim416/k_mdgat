@@ -479,6 +479,14 @@ class MDGAT(nn.Module):
             self.pointnet_to_superglue=pointnet_to_superglue(self.config['embed_dim'],
                                                          dim_superglue=self.config['descriptor_dim'])
        
+        elif self.descriptor == 'DGCNN':
+            self.desc=(DGCNN(self.config['embed_dim'],20))
+            self.kenc = KeypointEncoder(
+                        self.config['descriptor_dim'], self.config['keypoint_encoder'],False)
+            self.pointnet_to_superglue=pointnet_to_superglue(self.config['embed_dim'],
+                                                         dim_superglue=self.config['descriptor_dim'])
+       
+
 
 
         self.gnn = AttentionalGNN(
@@ -764,17 +772,20 @@ class MDGAT(nn.Module):
     
                 loss_mean = (loss_mean+loss_mean2)/2
                 ''' Calcul de la transformation'''
-                if epoch  < 150:
+                if epoch  < 0:
                     t_loss =  torch.full(loss_mean.size(), 1000.,device=device , dtype=torch.double)
+
                     return {
                             'matches0': indices0, # use -1 for invalid match
                             'matches1': indices1, # use -1 for invalid match
                             'matching_scores0': mscores0,
                             'matching_scores1': mscores1,
                             'loss': loss_mean,
-                            't_loss': t_loss
-                            # 'skip_train': False
-                        }
+                            't_loss': t_loss,
+                            'loss_1': t_loss/3.,
+                            'loss_2': t_loss/3.,
+                            'loss_3': t_loss/3.
+                            }
                 ## SVD
 
                 #d_k = kpts0.size(0)
@@ -793,15 +804,15 @@ class MDGAT(nn.Module):
                     loss_torch = F.mse_loss(torch.matmul(R_b.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
                         + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
                     loss.append(loss_torch.cpu().detach().numpy().item())
-
                 loss_tot.append(loss)
-                if loop == 0 :
+                if j == 0 :
                     loss_1.append(loss)
-                if loop == 1 :
+                if j == 1 :
                     loss_2.append(loss)
-                if loop == 2 :
+                if j == 2 :
                     loss_3.append(loss)
-                    
+
+
         if self.transform: 
             t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
             t_loss = torch.mean(t_loss,0).to(device)

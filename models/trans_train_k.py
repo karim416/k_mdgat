@@ -249,6 +249,9 @@ if __name__ == '__main__':
         epoch_loss = 0
         epoch_gap_loss = 0
         epoch_t_loss = 0
+        epoch_t1_loss = 0
+        epoch_t2_loss = 0
+        epoch_t3_loss = 0
         current_loss = 0
         net.double().train() 
         train_loader = tqdm(train_loader) 
@@ -273,14 +276,8 @@ if __name__ == '__main__':
             optimizer.zero_grad()
 
             #print(pred['loss'].size())
-
-            # Gap loss
-            Loss = (pred['loss'])
-            Loss = torch.mean(Loss)
-            # Transformation loss
-            T_Loss = (pred['t_loss'])
-            T_Loss = torch.mean(T_Loss)
-            # Transformation loss
+            
+            # # Transformation loss
             Loss_1 = (pred['loss_1'])
             Loss_1 = torch.mean(Loss_1)
             Loss_2 = (pred['loss_2'])
@@ -288,11 +285,23 @@ if __name__ == '__main__':
             Loss_3 = (pred['loss_3'])
             Loss_3 = torch.mean(Loss_3)
 
+            # Gap loss
+            Loss = (pred['loss']) 
+            Loss = torch.mean(Loss)
+            # Transformation loss
+            ''' On rétropropage la moyenne ou uniquement la dernière loss ...'''
+            T_Loss = (pred['loss_3'])  #(pred['t_loss'])
+            T_Loss = torch.mean(T_Loss)
+
             # sum
             tot_loss= 1e-2 * T_Loss + Loss
             epoch_gap_loss += Loss.item()
             epoch_t_loss += 1e-2 * T_Loss.item()
             epoch_loss += tot_loss.item()
+            epoch_t1_loss += 1e-2 * Loss_1.item()
+            epoch_t2_loss += 1e-2 * Loss_2.item()
+            epoch_t3_loss += 1e-2 * Loss_3.item()
+
             tot_loss.backward()
             optimizer.step()
             # lr_schedule.step()
@@ -300,8 +309,8 @@ if __name__ == '__main__':
             del pred, data, i
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
               , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
-        print('T1 loss :', Loss_1/len(train_loader),'T2 loss :', Loss_2/len(train_loader)
-              ,'T3 loss :', Loss_3/len(train_loader))
+        print('T1 loss :', epoch_t1_loss/len(train_loader),'T2 loss :', epoch_t2_loss/len(train_loader)
+              ,'T3 loss :', epoch_t3_loss/len(train_loader))
         # validation
 
         begin = time.time()

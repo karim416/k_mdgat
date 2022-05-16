@@ -438,6 +438,29 @@ class MDGAT(nn.Module):
         print('Features size : ', self.config['embed_dim'])
         print('--------------------------------------\n')
 
+    def compute_normals (self,kpts0,kpts1):
+        
+        pts0,pts1 = kpts0.cpu().numpy(),kpts1.cpu().numpy()
+        pcd0 = o3d.geometry.PointCloud()
+        pcd1 = o3d.geometry.PointCloud()
+
+        normals0 = []
+        normals1 = []
+        for j in range(len(pts0)) :
+            pcd0.points = o3d.utility.Vector3dVector(pts0[j])
+            pcd1.points = o3d.utility.Vector3dVector(pts1[j])
+            pcd0.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamKNN(knn=5)) 
+            pcd1.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamKNN(knn=5)) 
+            normals0.append(np.array(pcd0.normals))        
+            normals1.append(np.array(pcd1.normals))   
+            
+        normals0 = torch.tensor(np.array(normals0),dtype=torch.double,device=device)
+        normals1 = torch.tensor(np.array(normals1),dtype=torch.double,device=device)
+        
+        return normals0 , normals1
+
     def forward(self, data):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
