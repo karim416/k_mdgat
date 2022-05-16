@@ -405,6 +405,13 @@ class MDGAT(nn.Module):
             self.pointnet_to_superglue=pointnet_to_superglue(self.config['embed_dim'],
                                                          dim_superglue=self.config['descriptor_dim'])
        
+        elif self.descriptor == 'DGCNN':
+            self.desc=(DGCNN(self.config['embed_dim'],20))
+            self.kenc = KeypointEncoder(
+                        self.config['descriptor_dim'], self.config['keypoint_encoder'],False)
+            self.pointnet_to_superglue=pointnet_to_superglue(self.config['embed_dim'],
+                                                         dim_superglue=self.config['descriptor_dim'])
+       
 
 
         self.gnn = AttentionalGNN(

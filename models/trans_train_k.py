@@ -31,7 +31,7 @@ parser.add_argument(
     help='Number of Sinkhorn iterations')
 
 parser.add_argument(
-    '--learning_rate', type=int, default=0.0001,  #0.0001
+    '--learning_rate', type=float, default=0.0001,  #0.0001
     help='Learning rate')
 
 parser.add_argument(
@@ -247,6 +247,8 @@ if __name__ == '__main__':
     mean_loss = []
     for epoch in range(start_epoch, opt.epoch+1):
         epoch_loss = 0
+        epoch_gap_loss = 0
+        epoch_t_loss = 0
         current_loss = 0
         net.double().train() 
         train_loader = tqdm(train_loader) 
@@ -278,9 +280,18 @@ if __name__ == '__main__':
             # Transformation loss
             T_Loss = (pred['t_loss'])
             T_Loss = torch.mean(T_Loss)
+            # Transformation loss
+            Loss_1 = (pred['loss_1'])
+            Loss_1 = torch.mean(Loss_1)
+            Loss_2 = (pred['loss_2'])
+            Loss_2 = torch.mean(Loss_2)
+            Loss_3 = (pred['loss_3'])
+            Loss_3 = torch.mean(Loss_3)
+
             # sum
-            tot_loss= 1e-3 * T_Loss + Loss
-            
+            tot_loss= 1e-2 * T_Loss + Loss
+            epoch_gap_loss += Loss.item()
+            epoch_t_loss += 1e-2 * T_Loss.item()
             epoch_loss += tot_loss.item()
             tot_loss.backward()
             optimizer.step()
@@ -288,8 +299,9 @@ if __name__ == '__main__':
             
             del pred, data, i
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
-              , ' T loss = ' , 1e-3 * T_Loss.item()/len(train_loader)  , ' Gap loss = ', Loss.item()/len(train_loader) )
-
+              , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
+        print('T1 loss :', Loss_1/len(train_loader),'T2 loss :', Loss_2/len(train_loader)
+              ,'T3 loss :', Loss_3/len(train_loader))
         # validation
 
         begin = time.time()
@@ -316,7 +328,7 @@ if __name__ == '__main__':
                     T_Loss = (pred['t_loss'])
                     
                     # sum
-                    tot_loss= 1e-3 * T_Loss + Loss
+                    tot_loss= 1e-2 * T_Loss + Loss
                     
                     mean_val_loss.append(tot_loss) 
                     

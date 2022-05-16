@@ -533,6 +533,10 @@ class MDGAT(nn.Module):
         
         loop = 3 if (self.transform and self.training)  else 1
         loss_tot=[]
+        loss_1=[]
+        loss_2=[]
+        loss_3=[]
+
         for j in range(loop) :
 
             if self.descriptor == 'FPFH' or self.descriptor == 'FPFH_gloabal':
@@ -773,12 +777,10 @@ class MDGAT(nn.Module):
                         }
                 ## SVD
 
-                d_k = kpts0.size(0)
+                #d_k = kpts0.size(0)
                 R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
                              scores[:,:256,:256],indices0,indices1)
-           #     R_gt = data['T_gt'] [:,:3,:3].double().to(device)
-           #     T_gt = data['T_gt'] [:,:3,3]
-
+                
                 transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                 kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
                 loss=[]
@@ -793,10 +795,22 @@ class MDGAT(nn.Module):
                     loss.append(loss_torch.cpu().detach().numpy().item())
 
                 loss_tot.append(loss)
-
+                if loop == 0 :
+                    loss_1.append(loss)
+                if loop == 1 :
+                    loss_2.append(loss)
+                if loop == 2 :
+                    loss_3.append(loss)
+                    
         if self.transform: 
             t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
             t_loss = torch.mean(t_loss,0).to(device)
+            loss_1 =torch.tensor(loss_1,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
+            loss_1 = torch.mean(loss_1,0).to(device)
+            loss_2 =torch.tensor(loss_2,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
+            loss_2 = torch.mean(loss_2,0).to(device)
+            loss_3 =torch.tensor(loss_3,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
+            loss_3 = torch.mean(loss_3,0).to(device)
 
         else:
             t_loss =torch.tensor(loss,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
@@ -808,6 +822,9 @@ class MDGAT(nn.Module):
             'matching_scores1': mscores1,
             'loss': loss_mean,
             't_loss': t_loss,
+            'loss_1': loss_1,
+            'loss_2': loss_2,
+            'loss_3': loss_3,
             'R' : R,
             't' :t
             # 'skip_train': False
@@ -823,7 +840,7 @@ parser.add_argument(
     help='Number of Sinkhorn iterations')
 
 parser.add_argument(
-    '--learning_rate', type=int, default=0.0001,  #0.0001
+    '--learning_rate', type=float, default=0.0001,  #0.0001
     help='Learning rate')
 
 parser.add_argument(
