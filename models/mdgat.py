@@ -465,7 +465,13 @@ class MDGAT(nn.Module):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
-
+        
+        # # compute normals
+        # normals0,normals1 = self.compute_normals (kpts0,kpts1)
+        # s = torch.einsum('bnd,bmd->bnm', normals1, normals1)
+        # eps = -1e-6
+        # s = (torch.pi-torch.arccos(s+eps))/torch.pi
+        
         gt_matches0 = data['gt_matches0']
         gt_matches1 = data['gt_matches1']
 
