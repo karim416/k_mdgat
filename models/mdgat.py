@@ -468,7 +468,7 @@ class MDGAT(nn.Module):
         
         # # compute normals
         # normals0,normals1 = self.compute_normals (kpts0,kpts1)
-        # s = torch.einsum('bnd,bmd->bnm', normals1, normals1)
+        # s = torch.einsum('bnd,bmd->bnm', normals0, normals1)
         # eps = -1e-6
         # s = (torch.pi-torch.arccos(s+eps))/torch.pi
         
