@@ -11,6 +11,7 @@ import inspect
 import sys
 import os
 import numpy as np
+import open3d as o3d
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -514,11 +515,42 @@ class MDGAT(nn.Module):
         print('Descriptor : ', self.config['descriptor'])
         print('Features size : ', self.config['embed_dim'])
         print('--------------------------------------\n')
+  
+    def compute_normals (self,kpts0,kpts1):
+        
+        pts0,pts1 = kpts0.cpu().numpy(),kpts1.cpu().numpy()
+        pcd0 = o3d.geometry.PointCloud()
+        pcd1 = o3d.geometry.PointCloud()
 
+        normals0 = []
+        normals1 = []
+        for j in range(len(pts0)) :
+            pcd0.points = o3d.utility.Vector3dVector(pts0[j])
+            pcd1.points = o3d.utility.Vector3dVector(pts1[j])
+            pcd0.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamKNN(knn=5)) 
+            pcd1.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamKNN(knn=5)) 
+            normals0.append(np.array(pcd0.normals))        
+            normals1.append(np.array(pcd1.normals))   
+            
+        normals0 = torch.tensor(np.array(normals0),dtype=torch.double,device=device)
+        normals1 = torch.tensor(np.array(normals1),dtype=torch.double,device=device)
+        
+        return normals0 , normals1
+    
+    
     def forward(self, data ,epoch):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
+
+        # compute normals
+        # normals0,normals1 = self.compute_normals (kpts1,kpts1)
+        # s = torch.einsum('bnd,bmd->bnm', normals0, normals1)
+        # s = (torch.pi-torch.arccos(s))/torch.pi
+        # s=torch.nan_to_num(s,nan=1.0)
+
 
         gt_matches0 = data['gt_matches0']
         gt_matches1 = data['gt_matches1']
@@ -1047,4 +1079,3 @@ if __name__ == '__main__':
     T_pred=torch.cat((T_pred,line),1).double().to(device)
     print(T_pred.size())
     print(T_pred[0])
-

@@ -9,6 +9,7 @@ import inspect
 import sys
 import os
 import numpy as np
+import open3d as o3d
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
