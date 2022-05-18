@@ -442,7 +442,9 @@ class MDGAT(nn.Module):
         'GNN_layers': ['self', 'cross'] * 9,
         'sinkhorn_iterations': 100,
         'match_threshold': 0.2,
-        'points_transform' : False
+        'points_transform' : False,
+        'use_normals' : False
+
     }
 
     def __init__(self, config):
@@ -508,6 +510,7 @@ class MDGAT(nn.Module):
         self.train_step = config['train_step']
         self.SVD = SVDHead()
         self.transform = config['points_transform']
+        self.use_normals = config['use_normals']
 
 
         print('\n----------MDGAT initialized-----------')
@@ -534,13 +537,14 @@ class MDGAT(nn.Module):
             normals0.append(np.array(pcd0.normals))        
             normals1.append(np.array(pcd1.normals))   
             
-        normals0 = torch.tensor(np.array(normals0),dtype=torch.double,device=device)
-        normals1 = torch.tensor(np.array(normals1),dtype=torch.double,device=device)
+        normals0 = torch.tensor(np.array(normals0),dtype=torch.double)
+        normals1 = torch.tensor(np.array(normals1),dtype=torch.double)
         
         return normals0 , normals1
     
     
     def forward(self, data ,epoch):
+        
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
@@ -639,8 +643,16 @@ class MDGAT(nn.Module):
             else:
                 raise Exception('Invalid descriptor.')
     
+    
             scores = torch.einsum('bdn,bdm->bnm', mdesc0, mdesc1)
             scores = scores / self.config['descriptor_dim']**.5
+            
+            if self.use_normals : 
+                normals0,normals1 = self.compute_normals (kpts0,kpts1)
+                s = torch.einsum('bnd,bmd->bnm', normals0, normals1)
+                s = (torch.pi-torch.arccos(s))/torch.pi
+                s=torch.nan_to_num(s,nan=1.0).to(scores.device)
+                scores = (scores + s)/2. 
     
             '''Run the optimal transport.'''
             scores = log_optimal_transport(
@@ -821,22 +833,29 @@ class MDGAT(nn.Module):
                 ## SVD
 
                 #d_k = kpts0.size(0)
-                R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
+                R,t,nb_matches=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
                              scores[:,:256,:256],indices0,indices1)
                 
                 transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                 kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
                 loss=[]
-                for b in range(len(data['idx0'])) :
-                    R_b=R[b]
-                    t_b=t[b]
-                    R_gt = data['T_gt'] [b,:3,:3].double().to(device)
-                    T_gt = data['T_gt'] [b,:3,3]
-                    identity = torch.eye(3).to(device)
-                    loss_torch = F.mse_loss(torch.matmul(R_b.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
-                        + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
-                    loss.append(loss_torch.cpu().detach().numpy().item())
-                loss_tot.append(loss)
+                if nb_matches > 3 : 
+                    for b in range(len(data['idx0'])) :
+                        R_b=R[b]
+                        t_b=t[b]
+                        R_gt = data['T_gt'] [b,:3,:3].double().to(device)
+                        T_gt = data['T_gt'] [b,:3,3]
+                        identity = torch.eye(3).to(device)
+                        loss_torch = F.mse_loss(torch.matmul(R_b.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
+                            + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
+                        loss.append(loss_torch.cpu().detach().numpy().item())
+                    loss_tot.append(loss)
+                else:
+                    for b in range(len(data['idx0'])) :
+                        loss.append(1000.)
+                    loss_tot.append(loss)                    
+                    
+                    
                 if j == 0 :
                     loss_1.append(loss)
                 if j == 1 :
@@ -1012,6 +1031,10 @@ parser.add_argument(
 
 
 
+parser.add_argument(
+    '--use_normals', type=bool, default=False,  # True False
+    help='use normals to compute scores')
+
 if __name__ == '__main__':
     
     from load_data import SparseDataset
@@ -1034,7 +1057,9 @@ if __name__ == '__main__':
                 'L':opt.l,
                 'descriptor_dim' : opt.descriptor_dim,
                 'embed_dim' : opt.embed_dim,
-                'points_transform' : opt.points_transform
+                'points_transform' : opt.points_transform,
+                'use_normals' : opt.use_normals
+
                 
             }
         }
@@ -1071,11 +1096,11 @@ if __name__ == '__main__':
     R_pred = data['R']
     t_pred = data['t'].unsqueeze(-1)
     T_pred = torch.cat((R_pred,t_pred),2).double().to(device)
-    print(R_pred[0])
-    print(t_pred[0])
+        
+    print('R = ' , R_pred[0],end='\n')
+    print('t = ', t_pred[0],end='\n')
     # last row
     line=torch.tensor([0,0,0,1],dtype=torch.double).repeat(len(R_pred),1,1).to(device)
     # # transformation
     T_pred=torch.cat((T_pred,line),1).double().to(device)
-    print(T_pred.size())
-    print(T_pred[0])
+    print('T = ' , T_pred[0])

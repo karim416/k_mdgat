@@ -153,6 +153,11 @@ parser.add_argument(
     '--points_transform', type=bool, default=False,  # True False
     help='If applies [R,t] to source set ')
 
+
+parser.add_argument(
+    '--use_normals', type=bool, default=False,  # True False
+    help='use normals to compute scores')
+
         
 if __name__ == '__main__':
     opt = parser.parse_args()
@@ -208,6 +213,7 @@ if __name__ == '__main__':
                 'points_transform' : opt.points_transform,
                 'descriptor_dim' : opt.descriptor_dim,
                 'embed_dim' : opt.embed_dim,
+                'use_normals' : opt.use_normals
             }
         }
     

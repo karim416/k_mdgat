@@ -118,7 +118,7 @@ class SVDHead(nn.Module):
         R = torch.stack(R, dim=0)
         t = torch.stack(t, dim=0)
 
-        return R, t.view(batch_size, 3).to(device)
+        return R, t.view(batch_size, 3).to(device), valid_scores.size()[1]
 
 
 if __name__ == '__main__':
