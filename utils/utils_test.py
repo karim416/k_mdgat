@@ -24,6 +24,20 @@ class AverageMeter(object):
         self.sq_sum += val**2 * n
         self.var = self.sq_sum / self.count - self.avg**2
 
+
+
+def max_distance (pts) :
+    ''' pts  = pred[keypoints][index] , return  max distance'''
+    from numpy import random, nanmax, argmax, unravel_index
+    from scipy.spatial.distance import pdist, squareform
+    #A = random.randint(-5,5, (500,3))
+    A=pts
+    D = pdist(A)
+    D = squareform(D);
+    N, [I_row, I_col] = nanmax(D), unravel_index( argmax(D), D.shape )
+    return N
+
+
 def calculate_error2(mkpts0, mkpts1, b, T_gt):
     T = solve_icp(mkpts1, mkpts0)
     # T = solve_teaser(mkpts1, mkpts0)

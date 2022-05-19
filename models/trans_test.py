@@ -9,6 +9,7 @@ Created on Wed May 11 17:29:00 2022
 import argparse
 import numpy as np
 import torch
+
 from torch.autograd import Variable
 import inspect
 import sys
@@ -22,7 +23,7 @@ import _init_paths
 from load_data import SparseDataset
 import torch.multiprocessing
 import time
-from utils.utils_test import (calculate_error, plot_match)
+from utils.utils_test import (calculate_error, plot_match,max_distance)
 from models.superglue import SuperGlue
 from trans_mdgat import MDGAT
 from scipy.spatial.distance import cdist
@@ -222,6 +223,7 @@ if __name__ == '__main__':
         trans_error_array = []; rot_error_array = []; relative_trans_error_array = []; relative_rot_error_array = []
         repeatibilty_array = []; valid_num_array = []; all_num_array = []; inlier_array = [] 
         kpnum_array = []; fp_rate_array = []; tp_rate_array = []; tp_rate2_array = []; inlier_ratio_array= [];tm_a=[];fm_a=[]
+        length_array =[]
         fail = 0
         baned_data = 0
         
@@ -238,11 +240,12 @@ if __name__ == '__main__':
             
             data = net(pred,200) 
             pred = {**pred, **data}	
-#            print(pred['gt_matches0'])
+
             for b in range(len(pred['idx0'])):
                 pc0, pc1 = [],[]
-
                 kpts0, kpts1 = pred['keypoints0'][b].cpu().numpy(), pred['keypoints1'][b].cpu().numpy()
+                length_cloud0,length_cloud1 = max_distance(kpts0),max_distance(kpts1)
+                length_cld = np.min([length_cloud0,length_cloud1])
                 idx = pred['idx0'][b]
                 matches, matches1, conf = pred['matches0'][b].cpu().detach().numpy(), pred['matches1'][b].cpu().detach().numpy(), pred['matching_scores0'][b].cpu().detach().numpy()
                 valid = matches > -1
@@ -324,6 +327,7 @@ if __name__ == '__main__':
                     f_theta = (T_error[0, 0] + T_error[1, 1] + T_error[2, 2] -1) * 0.5
                     f_theta = max(min(f_theta, 1), -1)
                     rot_error = np.arccos(f_theta)
+                    
                     '''calculate pose error, inlier and failure rate'''
                     if opt.calculate_pose:
                         
@@ -345,16 +349,16 @@ if __name__ == '__main__':
                             tp_rate2_array.append(tp_rate2)
                             tm_a.append(tm)
                             fm_a.append(fm)
-                            print('idx{}, inlier {}, rep {:.3f}， inlier_ratio {:.3f}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}, trans_error {:.3f}, rot_error {:.3f} '.format(
-                                idx, inlier, repeatibilty,inlier_ratio, precision, accuracy, recall, fp_rate, tp_rate, trans_error, rot_error))
+                            print('idx{}, inlier {}, rep {:.3f}， inlier_ratio {:.3f}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}, trans_error {:.3f}, rot_error {:.3f} , cloud_length {:.3f}'.format(
+                                idx, inlier, repeatibilty,inlier_ratio, precision, accuracy, recall, fp_rate, tp_rate, trans_error, rot_error,length_cld))
                     else:
                         
                         if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
                             fail+=1
                             print('registration fail')
                         else : 
-                            print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} '.format(
-                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error))
+                            print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} , cloud_length {:.3f}'.format(
+                            idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error,length_cld))
                             precision_array.append(precision)
                             accuracy_array.append(accuracy)
                             recall_array.append(recall)
@@ -365,6 +369,7 @@ if __name__ == '__main__':
                             tp_rate2_array.append(tp_rate2)
                             tm_a.append(tm)
                             fm_a.append(fm)
+                            length_array.append(length_cld)
                     if opt.visualize:
                         plot_match(pc0, pc1, kpts0, kpts1, mkpts0, mkpts1, mkpts0_gt, mkpts1_gt, matches, mconf, true_positive, false_positive, T, opt.vis_line_width)
 
@@ -383,7 +388,8 @@ if __name__ == '__main__':
         tp_rate_mean2 = np.mean(tp_rate2_array)
         tm = np.mean(tm_a)
         fm = np.mean(fm_a)
-        print('\naverage repeatibility: {:.3f}, inlier_mean {:.3f}, inlier_ratio_mean {:.3f}, fail {:.6f}, precision_mean {:.3f}, accuracy_mean {:.3f}, recall_mean {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate_mean {:.3f}, tp_rate_mean {:.3f}, tp_rate_mean2 {:.3f}, trans_error_mean {:.3f}, rot_error_mean {:.3f} '.format(
-            repeatibilty_array_mean, inlier_mean, inlier_ratio_mean, fail/i, precision_mean, accuracy_mean, recall_mean,tm,fm, fp_rate_mean, tp_rate_mean, tp_rate_mean2, trans_error_mean, rot_error_mean ))
+        length_mean = np.mean(length_array)
+        print('\naverage repeatibility: {:.3f}, inlier_mean {:.3f}, inlier_ratio_mean {:.3f}, fail {:.6f}, precision_mean {:.3f}, accuracy_mean {:.3f}, recall_mean {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate_mean {:.3f}, tp_rate_mean {:.3f}, tp_rate_mean2 {:.3f}, trans_error_mean {:.3f}, rot_error_mean {:.3f} ,  length_mean {:.3f} '.format(
+            repeatibilty_array_mean, inlier_mean, inlier_ratio_mean, fail/i, precision_mean, accuracy_mean, recall_mean,tm,fm, fp_rate_mean, tp_rate_mean, tp_rate_mean2, trans_error_mean, rot_error_mean,length_mean ))
         # print('valid num {}, all_num {}'.format(valid_num_mean, all_num_mean))
         print('baned_data {}'.format(baned_data/i))
