@@ -159,6 +159,9 @@ parser.add_argument(
     '--use_normals', type=bool, default=False,  # True False
     help='use normals to compute scores')
 
+parser.add_argument(
+    '--train_part',  type=int, default=1, 
+    help='part 1 2 3')
         
 if __name__ == '__main__':
     opt = parser.parse_args()
@@ -285,19 +288,6 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
 
-            #print(pred['loss'].size())
-            
-            # # Transformation loss
-            # Loss_1 = (pred['loss_1'])
-            # Loss_1 = torch.mean(Loss_1)
-            # Loss_2 = (pred['loss_2'])
-            # Loss_2 = torch.mean(Loss_2)
-            # Loss_3 = (pred['loss_3'])
-            # Loss_3 = torch.mean(Loss_3)
-            # epoch_t1_loss += 1e-2 * Loss_1.item()
-            # epoch_t2_loss += 1e-2 * Loss_2.item()
-            # epoch_t3_loss += 1e-2 * Loss_3.item()
-
 
             # Gap loss
             Loss = (pred['loss']) 
@@ -308,10 +298,14 @@ if __name__ == '__main__':
             T_Loss = torch.mean(T_Loss)
 
             # sum
-            if epoch > 100 : 
-                a = 1e-2 
+            if opt.train_part == 1 : 
+                if epoch > 100 : 
+                    a = 1e-2 
+                else :
+                    a = 0.
             else :
-                a = 0.
+                a = 1e-2               
+                
                 
             tot_loss= a * T_Loss + Loss
             epoch_gap_loss += Loss.item()
@@ -326,6 +320,7 @@ if __name__ == '__main__':
             del pred, data, i
             
         # on sauv. les données avec la transformation
+        
         if epoch == opt.epoch : 
                 with open(parentdir+'/updated_data.pkl', 'wb') as handle:
                     pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)

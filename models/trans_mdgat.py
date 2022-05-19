@@ -540,7 +540,7 @@ class MDGAT(nn.Module):
         return normals0 , normals1
     
     
-    def forward(self, data ,epoch,end_epoch=1000):
+    def forward(self, data ,epoch=0,end_epoch=1000):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
@@ -826,10 +826,10 @@ class MDGAT(nn.Module):
                         loss.append(0.)
 
                     loss_tot.append(loss)
-
-                    if epoch == end_epoch : 
+                    
+                    if (self.training and  epoch == end_epoch) or  not self.training: 
                         transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                        kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)                    
+                        kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
                     
                 t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
                 t_loss = torch.mean(t_loss,0).to(device)
@@ -842,13 +842,9 @@ class MDGAT(nn.Module):
                 'matching_scores1': mscores1,
                 'loss': loss_mean,
                 't_loss': t_loss,
-                # 'loss_1': loss_1,
-                # 'loss_2': loss_2,
-                # 'loss_3': loss_3,
                 'R' : R,
                 't' :t,
                 'keypoints0' : kpts0
-                # 'skip_train': False
             }
 
 parser = argparse.ArgumentParser(
@@ -1033,6 +1029,7 @@ if __name__ == '__main__':
     net.double().to(device)
     print('==================\nData imported')
     edited_data={}
+    
     for batch, pred in enumerate(test_loader):
         if batch > 0 : break # Pour s'arreter à un seul batch
         for k in pred:
