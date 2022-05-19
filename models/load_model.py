@@ -1,26 +1,27 @@
-#encoding: utf-8
-import pickle
-from pathlib import Path
-import argparse
+from copy import deepcopy
 import torch
 from torch.autograd import Variable
 import torch.multiprocessing
+import torch.nn.functional as F
+from torch import nn
 from tqdm import tqdm
 import time
-from tensorboardX import SummaryWriter
-from superglue import SuperGlue
-from trans_mdgat import MDGAT
+from pointnet_util import PointNetSetKptsMsg, PointNetSetAbstraction
+from DGCNN import DGCNN , DGCNN_leaky
+from SVD import SVDHead
+import argparse
 import inspect
 import sys
 import os
+import numpy as np
+import open3d as o3d
+from pathlib import Path
+from trans_mdgat import MDGAT
+import pickle
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0, parentdir) 
-
-
-torch.set_grad_enabled(True)
-torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 parser = argparse.ArgumentParser(
@@ -132,7 +133,6 @@ parser.add_argument(
     '--train_step', type=int, default=3,  
     help='Training step when using pointnet: 1,2,3')
 
-
 parser.add_argument(
     '--train_seq', nargs="+", type=int, default=[4], 
     help='sequences for train ')
@@ -140,14 +140,20 @@ parser.add_argument(
 parser.add_argument(
     '--eval_seq',nargs="+",  type=int, default=[9], 
     help='sequences for evaluation ')
-    
+
 parser.add_argument(
-    '--descriptor_dim',  type=int, default=128, 
+    '--test_seq',nargs="+",  type=int, default=[8], 
+    help='sequences for evaluation ')
+
+
+parser.add_argument(
+    '--descriptor_dim',  type=int, default=256, 
     help=' features dim ')
-    
+
 parser.add_argument(
-    '--embed_dim',  type=int, default=128, 
+    '--embed_dim',  type=int, default=256, 
     help='DGCNN output dim ')
+
 
 
 parser.add_argument(
@@ -155,12 +161,9 @@ parser.add_argument(
     help='If applies [R,t] to source set ')
 
 
-parser.add_argument(
-    '--use_normals', type=bool, default=False,  # True False
-    help='use normals to compute scores')
 
-        
 if __name__ == '__main__':
+
     opt = parser.parse_args()
     
     from load_data import SparseDataset
@@ -175,10 +178,6 @@ if __name__ == '__main__':
     
 
     
-   # model_out_path = '{}/{}/{}{}-k{}-{}-{}' .format(opt.model_out_path, opt.dataset, opt.net, opt.l, opt.k, opt.loss_method, opt.descriptor)
-    # if opt.descriptor == 'pointnet' or opt.descriptor == 'pointnetmsg':
-    #     model_out_path = '{}/train_step{}' .format(model_out_path, opt.train_step)
-    # model_out_path = '{}/{}' .format(model_out_path, model_name)
     model_out_path = opt.model_out_path
     model_out_path = Path(model_out_path)
     model_out_path.mkdir(exist_ok=True, parents=True)
@@ -214,14 +213,11 @@ if __name__ == '__main__':
                 'points_transform' : opt.points_transform,
                 'descriptor_dim' : opt.descriptor_dim,
                 'embed_dim' : opt.embed_dim,
-                'use_normals' : opt.use_normals
             }
         }
     
-    if opt.net == 'superglue':
-        net = SuperGlue(config.get('net', {}))
-    else:
-        net = MDGAT(config.get('net', {}))
+
+    net = MDGAT(config.get('net', {}))
 
     if torch.cuda.is_available():
         device=torch.device('cuda:{}'.format(opt.local_rank[0]))
@@ -285,25 +281,11 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
 
-            #print(pred['loss'].size())
-            
-            # # Transformation loss
-            # Loss_1 = (pred['loss_1'])
-            # Loss_1 = torch.mean(Loss_1)
-            # Loss_2 = (pred['loss_2'])
-            # Loss_2 = torch.mean(Loss_2)
-            # Loss_3 = (pred['loss_3'])
-            # Loss_3 = torch.mean(Loss_3)
-            # epoch_t1_loss += 1e-2 * Loss_1.item()
-            # epoch_t2_loss += 1e-2 * Loss_2.item()
-            # epoch_t3_loss += 1e-2 * Loss_3.item()
-
-
             # Gap loss
             Loss = (pred['loss']) 
             Loss = torch.mean(Loss)
+            
             # Transformation loss
-            ''' On rétropropage la moyenne ou uniquement la dernière loss ...'''
             T_Loss = pred['t_loss']
             T_Loss = torch.mean(T_Loss)
 
@@ -394,11 +376,3 @@ if __name__ == '__main__':
                 torch.save(checkpoint, model_out_fullpath)
                 print("Epoch [{}/{}] done. Epoch Loss {:.4f}. Checkpoint saved to {}"
                     .format(epoch, opt.epoch, epoch_loss, model_out_fullpath))
-
-    #     #     # ================================================================== #
-    #     #     #                        Tensorboard Logging                         #
-    #     #     # ================================================================== #
-    #     #     logger.add_scalar('Train/val_loss',mean_val_loss,epoch)
-    #     #     logger.add_scalar('Train/epoch_loss',epoch_loss,epoch)
-    #     #     print("log file saved to {}\n"
-    #     #         .format(log_path))

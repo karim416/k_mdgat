@@ -55,6 +55,7 @@ class SVDHead(nn.Module):
         U, S, V = [], [], []
         R = []
         t = []
+        tot_valid=[]
         for i in range(src.size(0)) :
             
             # On applique la SVD uniquement au points ayant des correspondances !
@@ -80,45 +81,35 @@ class SVDHead(nn.Module):
  
             #src_corr_i = torch.matmul(tgt[i], scores[i].transpose(1, 0).contiguous())
             #src_centered_i = src[i] - src[i].mean(dim=1, keepdim=True)
-            if valid_scores.size()[1] > 3 :
+            tot_valid.append(valid_scores.size()[1])
+            if valid_scores.size()[1] > 20 :
                 src_i = mkpts0
                 src_corr_i = torch.matmul(mkpts1, valid_scores.transpose(1, 0).contiguous()).to(device)
                 src_centered_i = mkpts0 - mkpts0.mean(dim=1, keepdim=True)   
-            else:
-                # si on n'a pas assez de correspondances , on calcule la svd sur tous les points ?
-                kpts0=src[i]
-                kpts1=tgt[i]
-                src_i = kpts0
-                src_corr_i = torch.matmul(kpts1, scores[i].transpose(1, 0).contiguous()).to(device)
-                src_centered_i = kpts0.to(device) - kpts0.mean(dim=1, keepdim=True).to(device)    
-                
-            src_corr_centered_i = src_corr_i - src_corr_i.mean(dim=1, keepdim=True)
-            H_i = torch.matmul(src_centered_i, src_corr_centered_i.transpose(1, 0)
-                               .contiguous().to(device)).to(device)
-            u, s, v = torch.svd(H_i)
-            r = torch.matmul(v, u.transpose(1, 0).contiguous())
-            r_det = torch.det(r)
-            if r_det < 0:
+                src_corr_centered_i = src_corr_i - src_corr_i.mean(dim=1, keepdim=True)
+                H_i = torch.matmul(src_centered_i, src_corr_centered_i.transpose(1, 0)
+                                   .contiguous().to(device)).to(device)
                 u, s, v = torch.svd(H_i)
-                v = torch.matmul(v.to(device), self.reflect).to(device)
-                r = torch.matmul(v, u.transpose(1, 0).contiguous().to(device)).to(device)
-                # r = r * self.reflect
-            R.append(r)
+                r = torch.matmul(v, u.transpose(1, 0).contiguous())
+                r_det = torch.det(r)
+                if r_det < 0:
+                    u, s, v = torch.svd(H_i)
+                    v = torch.matmul(v.to(device), self.reflect).to(device)
+                    r = torch.matmul(v, u.transpose(1, 0).contiguous().to(device)).to(device)
+                tb=torch.matmul(-r, src_i.mean(dim=1, keepdim=True).to(device)) 
+                + src_corr_i.mean(dim=1, keepdim=True).to(device)
+                
+            else:
+                r=torch.eye(3,dtype=float,device=device)
+                tb=torch.zeros([3,1], dtype=float, device=device)
 
-            U.append(u)
-            S.append(s)
-            V.append(v)
-            tb=torch.matmul(-r, src_i.mean(dim=1, keepdim=True).to(device)) 
-            + src_corr_i.mean(dim=1, keepdim=True).to(device)
+            R.append(r)
             t.append(tb)
 
-        U = torch.stack(U, dim=0)
-        V = torch.stack(V, dim=0)
-        S = torch.stack(S, dim=0)
         R = torch.stack(R, dim=0)
         t = torch.stack(t, dim=0)
-
-        return R, t.view(batch_size, 3).to(device), valid_scores.size()[1]
+       # print('matchs', tot_valid)
+        return R, t.view(batch_size, 3).to(device), tot_valid
 
 
 if __name__ == '__main__':
