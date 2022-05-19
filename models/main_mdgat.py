@@ -272,35 +272,24 @@ if __name__ == '__main__':
         device = torch.device("cpu")
     net.double().to(device)
     net.load_model()
-    # if torch.cuda.is_available():
-    #     device=torch.device('cuda:{}'.format(opt.local_rank[0]))
-    #     # if torch.cuda.device_count() > 1:
-    #     #     print("Let's use", torch.cuda.device_count(), "GPUs!")
-    #     #     net = torch.nn.DataParallel(net, device_ids=opt.local_rank)
-    #     # else:
-    #     net = torch.nn.DataParallel(net)
-    # else:
-    #     device = torch.device("cpu")
-    #     print("### CUDA not available ###")
-        
-    # net.double().to(device)
-
-
-        
-    # edited_data={}
     
-    # for batch, pred in enumerate(test_loader):
-    #     net.double().eval()                
-    #     if batch > 0 : break # Pour s'arreter à un seul batch
-    #     for k in pred:
-    #         if k!='idx0' and k!='idx1' and k!='sequence':
-    #             if type(pred[k]) == torch.Tensor:
-    #                 pred[k] = Variable(pred[k].to(device))
-    #             else:
-    #                 pred[k] = Variable(torch.stack(pred[k]).to(device))
-    #     # On applique Superglue
-    #     data = net(pred,200)
-    #     pred = {**pred, **data}	
-    #     edited_data = {**edited_data,**pred}
+
+
+        
+    edited_data={}
+    
+    for batch, pred in enumerate(test_loader):
+        net.double().eval()                
+        if batch > 0 : break # Pour s'arreter à un seul batch
+        for k in pred:
+            if k!='idx0' and k!='idx1' and k!='sequence':
+                if type(pred[k]) == torch.Tensor:
+                    pred[k] = Variable(pred[k].to(device))
+                else:
+                    pred[k] = Variable(torch.stack(pred[k]).to(device))
+        # On applique Superglue
+        data = net(pred,200)
+        pred = {**pred, **data}	
+        edited_data = {**edited_data,**pred}
         
 
