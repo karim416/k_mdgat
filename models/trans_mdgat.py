@@ -835,8 +835,9 @@ class MDGAT(nn.Module):
                     mkpts1 = torch.tensor(pts1[matches[valid]],dtype=torch.double).permute(1,0).to(device)   
 
                     if valid_scores.size()[1] > 20 : 
+                        
                         # SVD 
-                        r,tb = self.SVD(mkpts1,mkpts1,valid_scores)
+                        r,tb = self.SVD(mkpts0,mkpts1,valid_scores)
                         R_gt = data['T_gt'] [b,:3,:3].double().to(device)
                         T_gt = data['T_gt'] [b,:3,3]
                         identity = torch.eye(3).to(device)
