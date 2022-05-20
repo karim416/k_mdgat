@@ -806,31 +806,65 @@ class MDGAT(nn.Module):
                 ''' Calcul de la transformation'''
                 
                 #  #  SVD
-                R,t,nb_match = self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
-                             scores[:,:256,:256],indices0,indices1)
-                
+                # R1,t1,nb_match = self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
+                #              scores[:,:256,:256],indices0,indices1)
                  #   transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                  #   kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
                 loss=[]
+                loss2=[]
+
+                tot_valid=[]
+                R = []
+                t = []
+                self.reflect = nn.Parameter(torch.eye(3), requires_grad=False).double().to(device)
+                self.reflect[2, 2] = -1
                 for b in range(len(data['idx0'])) :
-                    if nb_match[b] > 20 : 
-                        R_b=R[b]
-                        t_b=t[b]
+                    s=scores[:,:256,:256]
+                    s=torch.softmax(s, dim=2)
+                    matches=indices0[b].cpu().numpy()
+                    matches1=indices1[b].cpu().numpy()
+                    matches[matches==256]=-1
+                    matches1[matches1==256]=-1
+                    valid = matches > -1
+                    valid_scores=s[b,valid]
+                    valid_scores=valid_scores[:,matches[valid]].to(device)
+                    tot_valid.append(valid_scores.size()[1])
+                    pts0=kpts0[b].cpu().numpy()
+                    pts1=kpts1[b].cpu().numpy()
+                    mkpts0 = torch.tensor(pts0[valid],dtype=torch.double).permute(1,0).to(device)
+                    mkpts1 = torch.tensor(pts1[matches[valid]],dtype=torch.double).permute(1,0).to(device)   
+
+                    if valid_scores.size()[1] > 20 : 
+                        # SVD 
+                        r,tb = self.SVD(mkpts0,mkpts1,valid_scores)
                         R_gt = data['T_gt'] [b,:3,:3].double().to(device)
                         T_gt = data['T_gt'] [b,:3,3]
                         identity = torch.eye(3).to(device)
-                        loss_torch = F.mse_loss(torch.matmul(R_b.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
-                            + F.mse_loss(t_b.double().to(device), T_gt.double().to(device)).double().to(device)
+                        
+                        loss_torch = F.mse_loss(torch.matmul(r.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
+                            + F.mse_loss(tb.double().to(device), T_gt.view(3,1).double().to(device)).double().to(device)
                         loss.append(loss_torch.cpu().detach().numpy().item())
+                        print(tb)
+                        
                     else  :
+                        r=torch.eye(3,dtype=float,device=device)
+                        tb=torch.zeros([3,1], dtype=float, device=device)
                         loss.append(0.)
-
+                        
+                    R.append(r)
+                    t.append(tb)
                     loss_tot.append(loss)
-                    
-                    if (self.training and  epoch == end_epoch) or  not self.training: 
-                        transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                        kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
-                    
+ 
+                     
+                R = torch.stack(R, dim=0)
+                t = torch.stack(t, dim=0)
+                
+
+                
+                if (self.training and  epoch == end_epoch) or  not self.training: 
+                    transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
+                    kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
+
                 t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
                 t_loss = torch.mean(t_loss,0).to(device)
                 
