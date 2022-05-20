@@ -300,11 +300,11 @@ if __name__ == '__main__':
             # sum
             if opt.train_part == 1 : 
                 if epoch > 100 : 
-                    a = 1e-2 
+                    a = 1e-2
                 else :
                     a = 0.
             else :
-                a = 1e-2               
+                a = 1e-2           
                 
                 
             tot_loss= a * T_Loss + Loss
