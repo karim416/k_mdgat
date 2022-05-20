@@ -640,7 +640,7 @@ class MDGAT(nn.Module):
                 raise Exception('Invalid descriptor.')
     
             scores = torch.einsum('bdn,bdm->bnm', mdesc0, mdesc1)
-            scores = scores / self.config['descriptor_dim']**.5
+            scores = scores / self.config['descriptor_dim']#**.5
     
             '''Run the optimal transport.'''
             scores = log_optimal_transport(
@@ -805,68 +805,71 @@ class MDGAT(nn.Module):
                 loss_mean = (loss_mean+loss_mean2)/2
                 ''' Calcul de la transformation'''
                 
+                
+                
                 #  #  SVD
                 # R1,t1,nb_match = self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),
                 #              scores[:,:256,:256],indices0,indices1)
                  #   transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                  #   kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
-                loss=[]
-                loss2=[]
+                d_k = kpts0.size(0)                           
+                R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),scores[:,:-1,:-1])
 
-                tot_valid=[]
-                R = []
-                t = []
-                self.reflect = nn.Parameter(torch.eye(3), requires_grad=False).double().to(device)
-                self.reflect[2, 2] = -1
-                for b in range(len(data['idx0'])) :
-                    s=scores[:,:256,:256]
-                    s=torch.softmax(s, dim=2)
-                    matches=indices0[b].cpu().numpy()
-                    matches1=indices1[b].cpu().numpy()
-                    matches[matches==256]=-1
-                    matches1[matches1==256]=-1
-                    valid = matches > -1
-                    valid_scores=s[b,valid]
-                    valid_scores=valid_scores[:,matches[valid]].to(device)
-                    tot_valid.append(valid_scores.size()[1])
-                    pts0=kpts0[b].cpu().numpy()
-                    pts1=kpts1[b].cpu().numpy()
-                    mkpts0 = torch.tensor(pts0[valid],dtype=torch.double).permute(1,0).to(device)
-                    mkpts1 = torch.tensor(pts1[matches[valid]],dtype=torch.double).permute(1,0).to(device)   
+                R_gt = data['T_gt'] [:,:3,:3].double().to(device)
+                T_gt = data['T_gt'] [:,:3,3]
 
-                    if valid_scores.size()[1] > 20 : 
-                        
-                        # SVD 
-                        r,tb = self.SVD(mkpts0,mkpts1,valid_scores)
-                        R_gt = data['T_gt'] [b,:3,:3].double().to(device)
-                        T_gt = data['T_gt'] [b,:3,3]
-                        identity = torch.eye(3).to(device)
-                        
-                        loss_torch = F.mse_loss(torch.matmul(r.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
-                            + F.mse_loss(tb.double().to(device), T_gt.view(3,1).double().to(device)).double().to(device)
-                        loss.append(loss_torch.cpu().detach().numpy().item())
-                        
-                    else  :
-                        r=torch.eye(3,dtype=float,device=device)
-                        tb=torch.zeros([3,1], dtype=float, device=device)
-                        loss.append(0.)
-                        
-                    R.append(r.to(device))
-                    t.append(tb.to(device))
-                    loss_tot.append(loss)
+                identity = torch.eye(3).to(device).unsqueeze(0).repeat(d_k, 1, 1).double().to(device)              
+                loss = F.mse_loss(torch.matmul(R.transpose(2, 1).double().to(device), R_gt), identity).double().to(device) \
+                     + F.mse_loss(t.double().to(device), T_gt.double().to(device)).double().to(device)
+                t_loss=loss.double()
                 
-                R = torch.stack(R, dim=0).to(device)
-                t = torch.stack(t, dim=0).view(len(data['idx0']),3).to(device)
+                
+          #  valid0,valid1,indices0,indices1,mscores0,mscores1=self.matching_superglue(scores)      
+           
+
+                
+                # for b in range(len(data['idx0'])) :
+                #     s=scores[:,:256,:256]
+                #     s=torch.softmax(s, dim=2)
+                #     matches=indices0[b].cpu().numpy()
+                #     matches1=indices1[b].cpu().numpy()
+                #     matches[matches==256]=-1
+                #     matches1[matches1==256]=-1
+                #     valid = matches > -1
+                #     valid_scores=s[b,valid]
+                #     valid_scores=valid_scores[:,matches[valid]].to(device)
+                #     tot_valid.append(valid_scores.size()[1])
+                #     pts0=kpts0[b].cpu().numpy()
+                #     pts1=kpts1[b].cpu().numpy()
+                #     mkpts0 = torch.tensor(pts0[valid],dtype=torch.double).permute(1,0).to(device)
+                #     mkpts1 = torch.tensor(pts1[matches[valid]],dtype=torch.double).permute(1,0).to(device)   
+
+                #     if valid_scores.size()[1] > 20 : 
+                        
+                #         # SVD 
+                #         r,tb = self.SVD(mkpts0,mkpts1,valid_scores)
+                #         R_gt = data['T_gt'] [b,:3,:3].double().to(device)
+                #         T_gt = data['T_gt'] [b,:3,3]
+                #         identity = torch.eye(3).to(device)
+                        
+                #         loss_torch = F.mse_loss(torch.matmul(r.transpose(1, 0).double().to(device), R_gt), identity).double().to(device) \
+                #             + F.mse_loss(tb.double().to(device), T_gt.view(3,1).double().to(device)).double().to(device)
+                #         loss.append(loss_torch.cpu().detach().numpy().item())
+                        
+                #     else  :
+                #         r=torch.eye(3,dtype=float,device=device)
+                #         tb=torch.zeros([3,1], dtype=float, device=device)
+                #         loss.append(0.)
+                # t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
+                # t_loss = torch.mean(t_loss,0).to(device)
+
 
                 
                 if (self.training and  epoch == end_epoch) or  not self.training: 
-                     transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                     kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
+                          transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
+                          kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
 
-                t_loss =torch.tensor(loss_tot,dtype=torch.double,device=device)#.view(len(data['idx0']),3)
-                t_loss = torch.mean(t_loss,0).to(device)
-                
-
+  
             return {
                 'matches0': indices0, # use -1 for invalid match
                 'matches1': indices1, # use -1 for invalid match

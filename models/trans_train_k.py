@@ -261,9 +261,6 @@ if __name__ == '__main__':
         epoch_loss = 0
         epoch_gap_loss = 0
         epoch_t_loss = 0
-        epoch_t1_loss = 0
-        epoch_t2_loss = 0
-        epoch_t3_loss = 0
         current_loss = 0
         net.double().train() 
         train_loader = tqdm(train_loader) 
@@ -292,29 +289,33 @@ if __name__ == '__main__':
             # Gap loss
             Loss = (pred['loss']) 
             Loss = torch.mean(Loss)
+            
             # Transformation loss
             ''' On rétropropage la moyenne ou uniquement la dernière loss ...'''
+
             T_Loss = pred['t_loss']
-            T_Loss = torch.mean(T_Loss)
+            T_Loss = torch.mean(T_Loss) 
+            
 
             # sum
             if opt.train_part == 1 : 
-                if epoch > 100 : 
-                    a = 1e-2
+                if epoch > -1 : # 100 :
+                    a = 1e1
                 else :
-                    a = 0.
+                    a = 1
             else :
-                a = 1e-2           
+                a = 1e1       
                 
-                
-            tot_loss= a * T_Loss + Loss
-            epoch_gap_loss += Loss.item()
-            epoch_t_loss += a * T_Loss.item()
-            epoch_loss += tot_loss.item()
-
-
+            tot_loss= T_Loss  + a * Loss
             tot_loss.backward()
-            optimizer.step()
+            optimizer.step()    
+            
+            epoch_gap_loss += a * Loss.item()
+            epoch_loss += tot_loss.item()
+            epoch_t_loss += T_Loss.item()
+
+                        
+
             # lr_schedule.step()
             
             del pred, data, i
@@ -324,15 +325,14 @@ if __name__ == '__main__':
         if epoch == opt.epoch : 
                 with open(parentdir+'/updated_data.pkl', 'wb') as handle:
                     pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                print('New data saved to : ',parentdir+'/updated_data.pkl')
+                print('\n ----------> New data saved to : ',parentdir+'/updated_data.pkl')
     
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
               , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
-        # print('T1 loss :', epoch_t1_loss/len(train_loader),'T2 loss :', epoch_t2_loss/len(train_loader)
-        #       ,'T3 loss :', epoch_t3_loss/len(train_loader))
-        # validation
+
 
         begin = time.time()
+        eval_loss = 0
         with torch.no_grad():
             if epoch >= 0 and epoch%1==0:
                 mean_val_loss = []
@@ -352,17 +352,15 @@ if __name__ == '__main__':
                     pred = {**pred, **data}
 
                     Loss = pred['loss']
+                    #print('val',Loss.size())
                     # Transformation loss
                     T_Loss = (pred['t_loss'])
-                    
-                    # sum
-                    tot_loss= a * T_Loss + Loss
-                    
-                    mean_val_loss.append(tot_loss) 
-                    
-         
+                    T_Loss = torch.mean(T_Loss) 
+                    eval_loss+=(T_Loss + a * torch.mean(Loss))
+
+                                
             timeconsume = time.time() - begin
-            mean_val_loss = torch.mean(torch.stack(mean_val_loss)).item()
+            mean_val_loss = (eval_loss/len(val_loader)).item()
             epoch_loss /= len(train_loader)
 
             print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
