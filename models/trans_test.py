@@ -82,7 +82,7 @@ parser.add_argument(
     help='Path to the directory of kepoints.')
 
 parser.add_argument(
-    '--resume_model', type=str, default=parentdir+'/pre-trained/trans_best_model.pth',
+    '--resume_model', type=str, default=parentdir+'/pre-trained/model.pth',
     help='Number of skip frames for training')
 
 parser.add_argument(
