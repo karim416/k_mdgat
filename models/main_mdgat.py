@@ -46,55 +46,43 @@ class main_mdgat(nn.Module):
 
     }
 
-    def __init__(self, config):
+    def __init__(self, config,MDG):
         super().__init__()
         self.config = {**self.default_config, **config}
 
-        self.part1 = MDGAT(self.config)
+        self.part1 = MDG
         self.part2 = MDGAT(self.config)
-        self.part3 = MDGAT(self.config)
-                
-        if torch.cuda.is_available():
-            device=torch.device('cuda:{}'.format(opt.local_rank[0]))
-            # if torch.cuda.device_count() > 1:
-            #     print("Let's use", torch.cuda.device_count(), "GPUs!")
-            #     net = torch.nn.DataParallel(net, device_ids=opt.local_rank)
-            # else:
-            self.part1 = torch.nn.DataParallel(self.part1)
-            self.part2 = torch.nn.DataParallel(self.part2)
-            self.part3 = torch.nn.DataParallel(self.part3)
+
+        # if torch.cuda.is_available():
+        #     self.part1 = torch.nn.DataParallel(self.part1)
+        #     self.part2 = torch.nn.DataParallel(self.part2)
+        #     self.part3 = torch.nn.DataParallel(self.part3)
 
 
         
     def forward(self, data,epoch):
-        
         pred = self.part1(data,epoch)
         # On applique la 1 ère Transformation
         data['keypoints0'] = pred['keypoints0']
-        
         pred = self.part2(data,epoch)
-        # On applique une 2ème Transformation
-        data['keypoints0'] = pred['keypoints0']
-        #
-        pred = self.part3(data,epoch)
+        
         return pred
 
 
     def load_model (self) :
         path_checkpoint = parentdir+'/part1.pth'          
-        checkpoint = torch.load(path_checkpoint, map_location='cpu')#{'cuda:2':'cuda:0'})  
-        self.part1.load_state_dict(checkpoint['net']) 
+        checkpoint = torch.load(path_checkpoint)#{'cuda:2':'cuda:0'})  
+        self.part1.load_state_dict(checkpoint['net'],strict=False) 
+        
         ##
-        path_checkpoint = parentdir+'/part2.pth'          
-        checkpoint = torch.load(path_checkpoint, map_location='cpu')#{'cuda:2':'cuda:0'})  
-        self.part2.load_state_dict(checkpoint['net']) 
-        ##
-        path_checkpoint = parentdir+'/part3.pth'          
-        checkpoint = torch.load(path_checkpoint, map_location='cpu')#{'cuda:2':'cuda:0'})  
-        self.part3.load_state_dict(checkpoint['net']) 
+        # path_checkpoint = parentdir+'/part2.pth'          
+        # checkpoint = torch.load(path_checkpoint, map_location='cpu')#{'cuda:2':'cuda:0'})  
+        # self.part2.load_state_dict(checkpoint['net']) 
+        # ##
+        # path_checkpoint = parentdir+'/part3.pth'          
+        # checkpoint = torch.load(path_checkpoint, map_location='cpu')#{'cuda:2':'cuda:0'})  
+        # self.part3.load_state_dict(checkpoint['net']) 
             
-
-
         print('Model loaded ')
 
 parser = argparse.ArgumentParser(
@@ -263,23 +251,29 @@ if __name__ == '__main__':
         }
     
     # initialisation du modèle
+    path_checkpoint = parentdir+'/part1.pth'          
+    checkpoint = torch.load(path_checkpoint,map_location='cpu')#{'cuda:2':'cuda:0'})  
 
-    net = main_mdgat(config.get('net', {}))
+    MG1=MDGAT(config.get('net', {}))
+    MG1 = torch.nn.DataParallel(MG1)
+    MG1.load_state_dict(checkpoint['net']) 
+    
+    net = main_mdgat(config.get('net', {}),MG1)
     
     if torch.cuda.is_available():
         device=torch.device('cuda:{}'.format(opt.local_rank[0]))
     else:
         device = torch.device("cpu")
     net.double().to(device)
-    net.load_model()
+    net = nn.DataParallel(net, device_ids = [0])
+    net.to(f'cuda:{net.device_ids[0]}')
+ #   net.load_model()
     
 
-
-        
-    edited_data={}
-    
+    for param in net.module.part1.parameters():
+            param.requires_grad = False
     for batch, pred in enumerate(test_loader):
-        net.double().eval()                
+        net.double().eval()    
         if batch > 0 : break # Pour s'arreter à un seul batch
         for k in pred:
             if k!='idx0' and k!='idx1' and k!='sequence':
@@ -290,6 +284,5 @@ if __name__ == '__main__':
         # On applique Superglue
         data = net(pred,200)
         pred = {**pred, **data}	
-        edited_data = {**edited_data,**pred}
         
 

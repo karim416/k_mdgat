@@ -9,7 +9,9 @@ from tqdm import tqdm
 import time
 from tensorboardX import SummaryWriter
 from superglue import SuperGlue
+from main_mdgat import main_mdgat
 from trans_mdgat import MDGAT
+
 import inspect
 import sys
 import os
@@ -48,7 +50,7 @@ parser.add_argument(
     help='Batch size')
 
 parser.add_argument(
-    '--local_rank', type=int, default=[0,1,2,3], 
+    '--local_rank', type=int, default=[0,1], 
     help='Gpu rank')
 
 parser.add_argument(
@@ -177,7 +179,10 @@ if __name__ == '__main__':
         model_name = 'nomutualcheck-{}-k{}-batch{}-{}-{}-{}' .format(opt.net, opt.k, opt.batch_size, opt.loss_method, opt.descriptor, opt.keypoints)
     
 
-    
+    if torch.cuda.is_available():
+        device=torch.device('cuda:{}'.format(opt.local_rank[0]))
+    else:
+        device = torch.device("cpu")
    # model_out_path = '{}/{}/{}{}-k{}-{}-{}' .format(opt.model_out_path, opt.dataset, opt.net, opt.l, opt.k, opt.loss_method, opt.descriptor)
     # if opt.descriptor == 'pointnet' or opt.descriptor == 'pointnetmsg':
     #     model_out_path = '{}/train_step{}' .format(model_out_path, opt.train_step)
@@ -225,54 +230,74 @@ if __name__ == '__main__':
     if opt.net == 'superglue':
         net = SuperGlue(config.get('net', {}))
     else:
-        net = MDGAT(config.get('net', {}))
+        # initialisation du modèle
+        path_checkpoint = parentdir+'/part1.pth'          
+        checkpoint = torch.load(path_checkpoint,map_location=device)#{'cuda:2':'cuda:0'})  
+    
+        MG1=MDGAT(config.get('net', {}))
 
+        if torch.cuda.is_available():
+        #    device=torch.device('cuda:{}'.format(opt.local_rank[0]))
+            if torch.cuda.device_count() > 1:
+                print("Let's use", torch.cuda.device_count(), "GPUs!")
+                MG1 = torch.nn.DataParallel(MG1, device_ids=opt.local_rank)
+            else:
+                MG1 = torch.nn.DataParallel(MG1)
+        else:
+            device = torch.device("cpu")
+            print("### CUDA not available ###")
+            
+        MG1.load_state_dict(checkpoint['net']) 
+        net = main_mdgat(config.get('net', {}),MG1)
+        
+    if opt.resume:
+        net.load_state_dict(checkpoint['net']) 
+        optimizer = torch.optim.Adam(net.part2.parameters(), lr=config.get('net', {}).get('lr'))
+        print('Resume from:', opt.resume_model, 'at epoch', start_epoch, ',loss', loss, ',lr', lr,'.\nSo far best loss',best_loss,
+        "\n====================")
+    else:
+        optimizer = torch.optim.Adam(net.part2.parameters(), lr=lr)
+        print('====================\nStart new training')
+
+
+
+        
+    for param in net.part1.parameters():
+            param.requires_grad = False
+              
+ #   net.module.load_model()
+    net.part1.eval()
+    net.part2.train()
+    
     if torch.cuda.is_available():
         device=torch.device('cuda:{}'.format(opt.local_rank[0]))
         # if torch.cuda.device_count() > 1:
         #     print("Let's use", torch.cuda.device_count(), "GPUs!")
         #     net = torch.nn.DataParallel(net, device_ids=opt.local_rank)
         # else:
-        net = torch.nn.DataParallel(net)
+        #     net = torch.nn.DataParallel(net)
     else:
         device = torch.device("cpu")
         print("### CUDA not available ###")
-    net.to(device)
-
-    if opt.resume:
-        net.load_state_dict(checkpoint['net']) 
-        optimizer = torch.optim.Adam(net.parameters(), lr=config.get('net', {}).get('lr'))
-        print('Resume from:', opt.resume_model, 'at epoch', start_epoch, ',loss', loss, ',lr', lr,'.\nSo far best loss',best_loss,
-        "\n====================")
-    else:
-        optimizer = torch.optim.Adam(net.parameters(), lr=lr)
-        print('====================\nStart new training')
-
+    net.double().to(device)
+    
 
     train_set = SparseDataset(opt,opt.train_seq)
     val_set = SparseDataset(opt,opt.eval_seq)
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
-    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     print('==================\nData imported')
-    mean_loss = []
-    edited_data={}
-    
-    # On charge les points transformés si part 2 ou 3
-    if opt.train_part > 1 :
-        with open(parentdir+'/updated_data.pkl', 'rb') as handle:
-            update_data = pickle.load(handle)
-        print('\n ----------> New data loaded from: ',parentdir+'/updated_data.pkl')
 
-    else :
-        update_data ={}
-        
+    mean_loss = []
+
     for epoch in range(start_epoch, opt.epoch+1):
+
         epoch_loss = 0
         epoch_gap_loss = 0
         epoch_t_loss = 0
         current_loss = 0
-        net.double().train() 
+        net.to(device)
         train_loader = tqdm(train_loader) 
         begin = time.time()
         for i, pred in enumerate(train_loader):
@@ -282,16 +307,14 @@ if __name__ == '__main__':
                         pred[k] = Variable(pred[k].to(device))
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to(device))
-           # new_data = update_data[update_data['sequence']==pred['sequence']]
-           # new_data = new_data[new_data['idx0']==pred['idx0']]
 
-            data = net(pred,epoch,opt.epoch,update_data)
-
+            
+            data = net(pred,200)
+            
             for k, v in pred.items(): 
                 pred[k] = v[0]
             pred = {**pred, **data}
-            if epoch == opt.epoch :
-                edited_data = {**edited_data,**pred}
+
             if 'skip_train' in pred: # no keypoint
                 continue
 
@@ -325,87 +348,15 @@ if __name__ == '__main__':
             epoch_gap_loss += a * Loss.item()
             epoch_loss += tot_loss.item()
             epoch_t_loss += T_Loss.item()
+        
+            # print('\n  part1')
+            # for name, param in net.module.part1.gnn.named_parameters():
+            #     print(name, param.grad)
 
-                        
-            print('\npred',pred['sequence'])
-            
-            # lr_schedule.step()
+          #  lr_schedule.step()
             
             del pred, data, i
             
-        # on sauv. les données avec la transformation
-        
-        if epoch == opt.epoch : 
-                with open(parentdir+'/updated_data.pkl', 'wb') as handle:
-                    pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                print('\n ----------> New data saved to : ',parentdir+'/updated_data.pkl')
-        print('\n edited data;')
-        print(edited_data['sequence'])
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
               , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
 
-
-        begin = time.time()
-        eval_loss = 0
-        with torch.no_grad():
-            if epoch >= 0 and epoch%1==0:
-                mean_val_loss = []
-                for i, pred in enumerate(val_loader):
-                    ### eval ###
-                    net.eval()                
-                    for k in pred:
-                        # if k != 'file_name' and k!='cloud0' and k!='cloud1':
-                        if k!='idx0' and k!='idx1' and k!='sequence':
-                            if type(pred[k]) == torch.Tensor:
-                                pred[k] = Variable(pred[k].cuda().detach())
-                            else:
-                                pred[k] = Variable(torch.stack(pred[k]).cuda().detach())
-                            # print(type(pred[k]))   #pytorch.tensor
-                    
-                    data = net(pred,epoch,opt.epoch,update_data) 
-                    pred = {**pred, **data}
-
-                    Loss = pred['loss']
-                    #print('val',Loss.size())
-                    # Transformation loss
-                    T_Loss = (pred['t_loss'])
-                    T_Loss = torch.mean(T_Loss) 
-                    eval_loss+=(T_Loss + a * torch.mean(Loss))
-
-                                
-            timeconsume = time.time() - begin
-            mean_val_loss = (eval_loss/len(val_loader)).item()
-            epoch_loss /= len(train_loader)
-
-            print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
-            checkpoint = {
-                    "net": net.state_dict(),
-                    'optimizer':optimizer.state_dict(),
-                    "epoch": epoch,
-                    'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
-                    'loss': mean_val_loss
-                }
-            if epoch == opt.epoch : 
-                print('Last epoch model')
-                best_loss = mean_val_loss
-                model_out_fullpath = "{}/last_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
-                torch.save(checkpoint, model_out_fullpath)
-                print('time consume: {:.1f}s, last loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))                
-            if (mean_val_loss <= best_loss + 1e-5): 
-                best_loss = mean_val_loss
-                model_out_fullpath = "{}/best_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
-                torch.save(checkpoint, model_out_fullpath)
-                print('time consume: {:.1f}s, So far best loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))
-            elif epoch%50 == 0:
-                model_out_fullpath = "{}/model_epoch_{}.pth".format(model_out_path, epoch)
-                torch.save(checkpoint, model_out_fullpath)
-                print("Epoch [{}/{}] done. Epoch Loss {:.4f}. Checkpoint saved to {}"
-                    .format(epoch, opt.epoch, epoch_loss, model_out_fullpath))
-
-    #     #     # ================================================================== #
-    #     #     #                        Tensorboard Logging                         #
-    #     #     # ================================================================== #
-    #     #     logger.add_scalar('Train/val_loss',mean_val_loss,epoch)
-    #     #     logger.add_scalar('Train/epoch_loss',epoch_loss,epoch)
-    #     #     print("log file saved to {}\n"
-    #     #         .format(log_path))

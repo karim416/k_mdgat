@@ -155,7 +155,7 @@ parser.add_argument(
     help='If applies [R,t] to source set ')
 
 parser.add_argument(
-    '--test_seq', nargs="+", type=int, default=[4], 
+    '--test_seq', nargs="+", type=int, default=[10], 
     help='sequences for test ')
 
 if __name__ == '__main__':
@@ -224,10 +224,14 @@ if __name__ == '__main__':
         kpnum_array = []; fp_rate_array = []; tp_rate_array = []; tp_rate2_array = []; inlier_ratio_array= [];tm_a=[];fm_a=[]
         length_array =[]
         fail = 0
+        tot_trans_error_array = []; tot_rot_error_array = []
+        tot_precision_array = []; tot_accuracy_array = []; tot_recall_array = []
         baned_data = 0
         
         for i, pred in enumerate(test_loader):
             ### eval ###
+            
+
             begin = time.time()
             net.double().eval()                
             for k in pred:
@@ -238,6 +242,7 @@ if __name__ == '__main__':
                         pred[k] = Variable(torch.stack(pred[k]).to('cpu').detach())
             
             data = net(pred,200) 
+
             pred = {**pred, **data}	
 #            print(pred['gt_matches0'])
             for b in range(len(pred['idx0'])):
@@ -331,11 +336,24 @@ if __name__ == '__main__':
                     if opt.calculate_pose:
                         
                         T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, pred, b) 
-
-                        if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
+                        if np.isnan(trans_error) or np.isnan(rot_error):
+                            fail+=1
+                            print('registration fail')   
+                            
+                        elif trans_error>2 or rot_error>5:
                             fail+=1
                             print('registration fail')
+                            tot_trans_error_array.append(trans_error)
+                            tot_rot_error_array.append(rot_error)
+                            tot_precision_array.append(precision)
+                            tot_accuracy_array.append(accuracy)
+                            tot_recall_array.append(recall)
                         else:
+                            tot_precision_array.append(precision)
+                            tot_accuracy_array.append(accuracy)
+                            tot_recall_array.append(recall)
+                            tot_trans_error_array.append(trans_error)
+                            tot_rot_error_array.append(rot_error)
                             precision_array.append(precision)
                             accuracy_array.append(accuracy)
                             recall_array.append(recall)
@@ -351,10 +369,19 @@ if __name__ == '__main__':
                             print('idx{}, inlier {}, rep {:.3f}， inlier_ratio {:.3f}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, fp_rate {:.3f}, tp_rate {:.3f}, trans_error {:.3f}, rot_error {:.3f} , cloud_length {:.3f}'.format(
                                 idx, inlier, repeatibilty,inlier_ratio, precision, accuracy, recall, fp_rate, tp_rate, trans_error, rot_error,length_cld))
                     else:
-                        
-                        if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):
+                        if np.isnan(trans_error) or np.isnan(rot_error):
+                            fail+=1
+                            print('nan, reg fail')    
+                            
+                        elif trans_error>2 or rot_error>5 :
                             fail+=1
                             print('registration fail')
+                            tot_trans_error_array.append(trans_error)
+                            tot_rot_error_array.append(rot_error)
+                            tot_precision_array.append(precision)
+                            tot_accuracy_array.append(accuracy)
+                            tot_recall_array.append(recall)
+                            
                         else : 
                             print('idx{}, precision {:.3f}, accuracy {:.3f}, recall {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate {:.3f}, tp_rate {:.3f} ,trans_error {:.3f}, rot_error {:.3f} , cloud_length {:.3f}'.format(
                             idx, precision, accuracy, recall,tm,fm, fp_rate, tp_rate,trans_error, rot_error,length_cld))
@@ -369,11 +396,22 @@ if __name__ == '__main__':
                             tm_a.append(tm)
                             fm_a.append(fm)
                             length_array.append(length_cld)
+                            tot_trans_error_array.append(trans_error)
+                            tot_rot_error_array.append(rot_error)
+                            tot_precision_array.append(precision)
+                            tot_accuracy_array.append(accuracy)
+                            tot_recall_array.append(recall)
                     if opt.visualize:
                         plot_match(pc0, pc1, kpts0, kpts1, mkpts0, mkpts1, mkpts0_gt, mkpts1_gt, matches, mconf, true_positive, false_positive, T, opt.vis_line_width)
 
                     
-
+                    
+        tot_trans_error_mean = np.mean(tot_trans_error_array)
+        tot_rot_error_mean = np.mean(tot_rot_error_array)
+        tot_precision_mean = np.mean(tot_precision_array)
+        tot_accuracy_mean = np.mean(tot_accuracy_array)
+        tot_recall_mean = np.mean(tot_recall_array)        
+    
         precision_mean = np.mean(precision_array)
         accuracy_mean = np.mean(accuracy_array)
         recall_mean = np.mean(recall_array)
@@ -391,4 +429,7 @@ if __name__ == '__main__':
         print('\naverage repeatibility: {:.3f}, inlier_mean {:.3f}, inlier_ratio_mean {:.3f}, fail {:.6f}, precision_mean {:.3f}, accuracy_mean {:.3f}, recall_mean {:.3f}, true match {:.3f}, false match {:.3f}, fp_rate_mean {:.3f}, tp_rate_mean {:.3f}, tp_rate_mean2 {:.3f}, trans_error_mean {:.3f}, rot_error_mean {:.3f} ,  length_mean {:.3f} '.format(
             repeatibilty_array_mean, inlier_mean, inlier_ratio_mean, fail/i, precision_mean, accuracy_mean, recall_mean,tm,fm, fp_rate_mean, tp_rate_mean, tp_rate_mean2, trans_error_mean, rot_error_mean,length_mean ))
         # print('valid num {}, all_num {}'.format(valid_num_mean, all_num_mean))
+        print('\n Tot: precision_mean {:.3f}, accuracy_mean {:.3f}, recall_mean {:.3f} , trans_error_mean {:.3f}, rot_error_mean {:.3f}, rot_error_mean_deg {:.3f}'.format(
+             tot_precision_mean, tot_accuracy_mean, tot_recall_mean,tot_trans_error_mean, tot_rot_error_mean, tot_rot_error_mean*180./np.pi ))
+
         print('baned_data {}'.format(baned_data/i))

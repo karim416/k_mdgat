@@ -442,7 +442,8 @@ class MDGAT(nn.Module):
         'GNN_layers': ['self', 'cross'] * 9,
         'sinkhorn_iterations': 100,
         'match_threshold': 0.2,
-        'points_transform' : False
+        'points_transform' : False,
+        'train_part' : 1
     }
 
     def __init__(self, config):
@@ -508,6 +509,7 @@ class MDGAT(nn.Module):
         self.train_step = config['train_step']
         self.SVD = SVDHead()
         self.transform = config['points_transform']
+        self.train_part = config['train_part']
 
 
         print('\n----------MDGAT initialized-----------')
@@ -540,10 +542,20 @@ class MDGAT(nn.Module):
         return normals0 , normals1
     
     
-    def forward(self, data ,epoch=0,end_epoch=1000):
+    def forward(self,*input) : # data ,epoch=0,end_epoch=1000):
         """Run SuperGlue on a pair of keypoints and descriptors"""
+        data=input[0]
+        epoch=input[1]
+        end_epoch=input[2]
+        if len(input) == 4 :
+            update_data=input[3]
         
-        kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
+        if self.train_part > 1 :
+            print(data['sequence'])
+            print(update_data['idx0'][update_data['idx0']==data['idx0']])
+            kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
+        else:
+            kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
 
         # compute normals
         # normals0,normals1 = self.compute_normals (kpts1,kpts1)
@@ -869,14 +881,7 @@ class MDGAT(nn.Module):
                           transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                           kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
 
-                else : 
-                    #print('len kpts0', kpts0.size())
-                    transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                    kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)            
-                    #print(transformed_kpts0.size())
-                    #transformed_kpts0 = kpts0
-
-      
+  
             return {
                 'matches0': indices0, # use -1 for invalid match
                 'matches1': indices1, # use -1 for invalid match
@@ -1026,6 +1031,11 @@ parser.add_argument(
     help='If applies [R,t] to source set ')
 
 
+parser.add_argument(
+    '--train_part',  type=int, default=1, 
+    help='part 1 2 3')
+        
+
 
 if __name__ == '__main__':
     
@@ -1050,13 +1060,16 @@ if __name__ == '__main__':
                 'L':opt.l,
                 'descriptor_dim' : opt.descriptor_dim,
                 'embed_dim' : opt.embed_dim,
-                'points_transform' : opt.points_transform
+                'points_transform' : opt.points_transform,
+                'train_part' : opt.train_part
+
             }
         }
     test_set = SparseDataset(opt, opt.test_seq)
     test_loader = torch.utils.data.DataLoader(dataset=test_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
 
     net = MDGAT(config.get('net', {}))
+    net2 = MDGAT(config.get('net', {})) 
     
     if torch.cuda.is_available():
         device=torch.device('cuda:{}'.format(opt.local_rank[0]))
@@ -1068,13 +1081,35 @@ if __name__ == '__main__':
     else:
         device = torch.device("cpu")
         print("### CUDA not available ###")
+        
+    
+    if torch.cuda.is_available():
+        device=torch.device('cuda:{}'.format(opt.local_rank[0]))
+        # if torch.cuda.device_count() > 1:
+        #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+        #     net = torch.nn.DataParallel(net, device_ids=opt.local_rank)
+        # else:
+        net2 = torch.nn.DataParallel(net2)
+    else:
+        device = torch.device("cpu")
+        print("### CUDA not available ###")        
     net.double().to(device)
+    net2 = torch.nn.DataParallel(net2)
+
     print('==================\nData imported')
-#    edited_data={}
+    
+    
 
-
+    edited_data={'sequence': {'00':{},'01':{},'02':{},'03':{}
+                              ,'04':{},'05':{},'06':{},'07':{},'08':{},'09':{}}}
+    
+    with open('filename.pkl', 'rb') as handle:
+          b = pickle.load(handle)
+    
     for batch, pred in enumerate(test_loader):
-        if batch > 0 : break # Pour s'arreter à un seul batch
+        net2.double().eval()                
+
+       # if batch > 0 : break # Pour s'arreter à un seul batch
         for k in pred:
             if k!='idx0' and k!='idx1' and k!='sequence':
                 if type(pred[k]) == torch.Tensor:
@@ -1082,23 +1117,22 @@ if __name__ == '__main__':
                 else:
                     pred[k] = Variable(torch.stack(pred[k]).to(device))
         # On applique Superglue
-        data = net(pred,200)
+        data1 = net2(pred,1,1,{})
+        data = net(pred,1,1,{})
         pred = {**pred, **data}	
-    #    edited_data = {**edited_data,**pred}
+
         
+        # for j in pred['sequence'] :
+        #     s=0
+        
+        #     for i in  pred['idx0'] : 
+        #         edited_data['sequence'][j].update({str(i.cpu().detach().numpy().item()):
+        #                                             pred['keypoints0'][s,:,:].data.tolist() })
+        #         s+=1
+
     # with open('filename.pkl', 'wb') as handle:
     #     pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    # # print(data['loss'])
-    # # print(data['t_loss'])
-    # R_pred = data['R']
-    # t_pred = data['t'].unsqueeze(-1)
-    # T_pred = torch.cat((R_pred,t_pred),2).double().to(device)
-    # print(R_pred[0])
-    # print(t_pred[0])
-    # # last row
-    # line=torch.tensor([0,0,0,1],dtype=torch.double).repeat(len(R_pred),1,1).to(device)
-    # # # transformation
-    # T_pred=torch.cat((T_pred,line),1).double().to(device)
-    # print(T_pred.size())
-    # print(T_pred[0])
+
+    # with open('filename.pkl', 'rb') as handle:
+    #       b = pickle.load(handle)
+    # print(len(b['sequence']['04']['200']))
