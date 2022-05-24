@@ -293,6 +293,8 @@ if __name__ == '__main__':
 
     for epoch in range(start_epoch, opt.epoch+1):
 
+        net.part1.eval()
+        net.part2.train()
         epoch_loss = 0
         epoch_gap_loss = 0
         epoch_t_loss = 0

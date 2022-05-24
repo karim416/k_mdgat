@@ -217,8 +217,7 @@ if __name__ == '__main__':
                 'points_transform' : opt.points_transform,
                 'descriptor_dim' : opt.descriptor_dim,
                 'embed_dim' : opt.embed_dim,
-                'use_normals' : opt.use_normals,
-                'train_part' : opt.train_part
+                'use_normals' : opt.use_normals
             }
         }
     
@@ -257,16 +256,7 @@ if __name__ == '__main__':
     print('==================\nData imported')
     mean_loss = []
     edited_data={}
-    
-    # On charge les points transformés si part 2 ou 3
-    if opt.train_part > 1 :
-        with open(parentdir+'/updated_data.pkl', 'rb') as handle:
-            update_data = pickle.load(handle)
-        print('\n ----------> New data loaded from: ',parentdir+'/updated_data.pkl')
 
-    else :
-        update_data ={}
-        
     for epoch in range(start_epoch, opt.epoch+1):
         epoch_loss = 0
         epoch_gap_loss = 0
@@ -282,10 +272,8 @@ if __name__ == '__main__':
                         pred[k] = Variable(pred[k].to(device))
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to(device))
-           # new_data = update_data[update_data['sequence']==pred['sequence']]
-           # new_data = new_data[new_data['idx0']==pred['idx0']]
-
-            data = net(pred,epoch,opt.epoch,update_data)
+            
+            data = net(pred,epoch,opt.epoch)
 
             for k, v in pred.items(): 
                 pred[k] = v[0]
@@ -312,11 +300,11 @@ if __name__ == '__main__':
             # sum
             if opt.train_part == 1 : 
                 if epoch > -1 : # 100 :
-                    a = 1e1
+                    a = 10. #1/20.
                 else :
                     a = 1
             else :
-                a = 1e1       
+                a =10. # 1/20.    
                 
             tot_loss= T_Loss  + a * Loss
             tot_loss.backward()
@@ -327,8 +315,7 @@ if __name__ == '__main__':
             epoch_t_loss += T_Loss.item()
 
                         
-            print('\npred',pred['sequence'])
-            
+
             # lr_schedule.step()
             
             del pred, data, i
@@ -339,8 +326,7 @@ if __name__ == '__main__':
                 with open(parentdir+'/updated_data.pkl', 'wb') as handle:
                     pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
                 print('\n ----------> New data saved to : ',parentdir+'/updated_data.pkl')
-        print('\n edited data;')
-        print(edited_data['sequence'])
+    
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
               , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
 
@@ -362,7 +348,7 @@ if __name__ == '__main__':
                                 pred[k] = Variable(torch.stack(pred[k]).cuda().detach())
                             # print(type(pred[k]))   #pytorch.tensor
                     
-                    data = net(pred,epoch,opt.epoch,update_data) 
+                    data = net(pred,epoch) 
                     pred = {**pred, **data}
 
                     Loss = pred['loss']
