@@ -285,4 +285,3 @@ if __name__ == '__main__':
         data = net(pred,200)
         pred = {**pred, **data}	
         
-
