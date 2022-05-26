@@ -63,7 +63,6 @@ class main_mdgat(nn.Module):
     def forward(self, data,epoch):
         pred = self.part1(data,epoch)
         # On applique la 1 ère Transformation
-        data['keypoints0'] = pred['keypoints0']
         pred = self.part2(data,epoch)
         
         return pred

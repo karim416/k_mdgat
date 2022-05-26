@@ -230,7 +230,6 @@ if __name__ == '__main__':
         
         for i, pred in enumerate(test_loader):
             ### eval ###
-            
 
             begin = time.time()
             net.double().eval()                
@@ -242,9 +241,8 @@ if __name__ == '__main__':
                         pred[k] = Variable(torch.stack(pred[k]).to('cpu').detach())
             
             data = net(pred,200) 
-
+            print('hhhh', data['keypoints0'][0,0,0])
             pred = {**pred, **data}	
-#            print(pred['gt_matches0'])
             for b in range(len(pred['idx0'])):
                 pc0, pc1 = [],[]
 

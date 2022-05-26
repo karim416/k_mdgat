@@ -99,7 +99,7 @@ parser.add_argument(
     help='Used dataset')
 
 parser.add_argument(
-    '--resume_model', type=str, default='./your_model.pth',
+    '--resume_model', type=str, default=parentdir+'/pre-trained/main_model.pth',
     help='Path to the resumed model')
 
 parser.add_argument(
@@ -195,17 +195,10 @@ if __name__ == '__main__':
     "\n====================",
     "\nmodel_out_path: ", model_out_path)
    
-    if opt.resume:        
-        path_checkpoint = parentdir+'/'+opt.resume_model  
-        checkpoint = torch.load(path_checkpoint) 
-        lr = checkpoint['lr_schedule']  # lr = opt.learning_rate # lr = checkpoint['lr_schedule']
-        start_epoch = checkpoint['epoch'] + 1 
-        loss = checkpoint['loss']
-        best_loss = loss
-    else:
-        start_epoch = 1
-        best_loss = 1e6
-        lr=opt.learning_rate
+
+    start_epoch = 1
+    best_loss = 1e6
+    lr=opt.learning_rate
     
     config = {
             'net': {
@@ -251,6 +244,12 @@ if __name__ == '__main__':
         net = main_mdgat(config.get('net', {}),MG1)
         
     if opt.resume:
+        path_checkpoint = parentdir+'/pre-trained/main_model.pth'          
+        checkpoint = torch.load(path_checkpoint,map_location=device) #{'cuda:2':'cuda:0'})  
+        lr = checkpoint['lr_schedule']  # lr = opt.learning_rate # lr = checkpoint['lr_schedule']
+        start_epoch = checkpoint['epoch'] + 1 
+        loss = checkpoint['loss'].item()
+        best_loss = loss
         net.load_state_dict(checkpoint['net']) 
         optimizer = torch.optim.Adam(net.part2.parameters(), lr=config.get('net', {}).get('lr'))
         print('Resume from:', opt.resume_model, 'at epoch', start_epoch, ',loss', loss, ',lr', lr,'.\nSo far best loss',best_loss,
@@ -286,7 +285,7 @@ if __name__ == '__main__':
     val_set = SparseDataset(opt,opt.eval_seq)
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
-    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     print('==================\nData imported')
 
     mean_loss = []
@@ -303,6 +302,8 @@ if __name__ == '__main__':
         train_loader = tqdm(train_loader) 
         begin = time.time()
         for i, pred in enumerate(train_loader):
+            
+        
             for k in pred:
                 if k!='idx0' and k!='idx1' and k!='sequence':
                     if type(pred[k]) == torch.Tensor:
