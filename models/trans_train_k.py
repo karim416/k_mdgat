@@ -255,7 +255,6 @@ if __name__ == '__main__':
     train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     print('==================\nData imported')
     mean_loss = []
-    edited_data={}
 
     for epoch in range(start_epoch, opt.epoch+1):
         epoch_loss = 0
@@ -278,8 +277,7 @@ if __name__ == '__main__':
             for k, v in pred.items(): 
                 pred[k] = v[0]
             pred = {**pred, **data}
-            if epoch == opt.epoch :
-                edited_data = {**edited_data,**pred}
+
             if 'skip_train' in pred: # no keypoint
                 continue
 
@@ -322,11 +320,7 @@ if __name__ == '__main__':
             
         # on sauv. les données avec la transformation
         
-        if epoch == opt.epoch : 
-                with open(parentdir+'/updated_data.pkl', 'wb') as handle:
-                    pickle.dump(edited_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                print('\n ----------> New data saved to : ',parentdir+'/updated_data.pkl')
-    
+
         print('\nepoch = ',epoch,' -------- loss = ', epoch_loss/len(train_loader)
               , ' T loss = ' , epoch_t_loss/len(train_loader)  , ' Gap loss = ', epoch_gap_loss /len(train_loader) )
 
