@@ -544,7 +544,6 @@ class MDGAT(nn.Module):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         
         kpts0, kpts1 = data['keypoints0'].double(), data['keypoints1'].double()
-
         # compute normals
         # normals0,normals1 = self.compute_normals (kpts1,kpts1)
         # s = torch.einsum('bnd,bmd->bnm', normals0, normals1)
@@ -813,7 +812,9 @@ class MDGAT(nn.Module):
                  #   transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
                  #   kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)
                 d_k = kpts0.size(0)                           
-                R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),scores[:,:-1,:-1])
+#                R,t=self.SVD(kpts0.permute(0,2,1),kpts1.permute(0,2,1),scores[:,:-1,:-1])
+                R,t=self.SVD(kpts1.permute(0,2,1),kpts0.permute(0,2,1),scores.permute(0,2,1)[:,:-1,:-1])
+               # R,t=self.SVD(kpts1.permute(0,2,1),kpts0.permute(0,2,1),scores[:,:-1,:-1])
 
                 R_gt = data['T_gt'] [:,:3,:3].double().to(device)
                 T_gt = data['T_gt'] [:,:3,3]
@@ -866,13 +867,13 @@ class MDGAT(nn.Module):
 
                 
                 if (self.training and  epoch == end_epoch) or  not self.training: 
-                          transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                          kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)  
+                          transformed_kpts1 = torch.matmul( R.to(device), kpts1.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
+                          kpts1.data.copy_(transformed_kpts1.permute(0,2,1).data)  
 
                 else : 
                     #print('len kpts0', kpts0.size())
-                    transformed_kpts0 = torch.matmul( R.to(device), kpts0.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
-                    kpts0.data.copy_(transformed_kpts0.permute(0,2,1).data)            
+                    transformed_kpts1 = torch.matmul( R.to(device), kpts1.permute(0,2,1).to(device))+t.unsqueeze(2).to(device)
+                    kpts1.data.copy_(transformed_kpts1.permute(0,2,1).data)            
                     #print(transformed_kpts0.size())
                     #transformed_kpts0 = kpts0
 
@@ -886,7 +887,7 @@ class MDGAT(nn.Module):
                 't_loss': t_loss,
                 'R' : R,
                 't' :t,
-                'keypoints0' : kpts0
+                'keypoints1' : kpts1
             }
 
 parser = argparse.ArgumentParser(

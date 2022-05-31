@@ -241,7 +241,6 @@ if __name__ == '__main__':
                         pred[k] = Variable(torch.stack(pred[k]).to('cpu').detach())
             
             data = net(pred,200) 
-            print('hhhh', data['keypoints0'][0,0,0])
             pred = {**pred, **data}	
             for b in range(len(pred['idx0'])):
                 pc0, pc1 = [],[]

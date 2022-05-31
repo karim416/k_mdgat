@@ -285,7 +285,7 @@ if __name__ == '__main__':
     val_set = SparseDataset(opt,opt.eval_seq)
     
     val_loader = torch.utils.data.DataLoader(dataset=val_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
-    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=False, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, shuffle=True, batch_size=opt.batch_size, num_workers=1, drop_last=True, pin_memory = True)
     print('==================\nData imported')
 
     mean_loss = []

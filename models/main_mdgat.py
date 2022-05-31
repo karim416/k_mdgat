@@ -29,7 +29,7 @@ from utils.utils_test import (calculate_error, plot_match,max_distance)
 from models.superglue import SuperGlue
 from trans_mdgat import MDGAT
 from scipy.spatial.distance import cdist
-
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") 
 
 
 class main_mdgat(nn.Module):
@@ -53,19 +53,36 @@ class main_mdgat(nn.Module):
         self.part1 = MDG
         self.part2 = MDGAT(self.config)
 
-        # if torch.cuda.is_available():
-        #     self.part1 = torch.nn.DataParallel(self.part1)
-        #     self.part2 = torch.nn.DataParallel(self.part2)
-        #     self.part3 = torch.nn.DataParallel(self.part3)
 
 
         
     def forward(self, data,epoch):
+
+
         pred = self.part1(data,epoch)
+        T_gt = data['T_gt']
+        R = pred['R']
+        t = pred['t']
+        t=torch.unsqueeze(t,dim = 2).double().to(device)
+        T=torch.cat((R,t),dim=2).double().to(device)
+        one_line = torch.tensor([0.,0.,0.,1.]).double().to(device)
+        one_line = torch.unsqueeze(one_line,dim = 0).double().to(device)
+        one_line = torch.unsqueeze(one_line,dim = 0).double().to(device)
+        one_line = one_line.repeat(T.size()[0],1,1).double().to(device)
+        T=torch.cat((T,one_line),dim=1).double().to(device)
+        Tgt = torch.matmul(torch.inverse(T).double().to(device),T_gt).double().to(device)
+
+        data['keypoints1'] = pred['keypoints1']
+        data['T_gt'] = Tgt
+
         # On applique la 1 ère Transformation
         pred = self.part2(data,epoch)
-        
+        # print('\n dans main')
+        # print('\n kpt000', pred['keypoints0'])
+        # print('\n TGT', Tgt)
+
         return pred
+
 
 
     def load_model (self) :

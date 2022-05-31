@@ -328,7 +328,7 @@ if __name__ == '__main__':
         begin = time.time()
         eval_loss = 0
         with torch.no_grad():
-            if epoch >= 0 and epoch%1==0:
+            if epoch >= 0 and epoch%2==0:
                 mean_val_loss = []
                 for i, pred in enumerate(val_loader):
                     ### eval ###
@@ -353,34 +353,34 @@ if __name__ == '__main__':
                     eval_loss+=(T_Loss + a * torch.mean(Loss))
 
                                 
-            timeconsume = time.time() - begin
-            mean_val_loss = (eval_loss/len(val_loader)).item()
-            epoch_loss /= len(train_loader)
-
-            print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
-            checkpoint = {
-                    "net": net.state_dict(),
-                    'optimizer':optimizer.state_dict(),
-                    "epoch": epoch,
-                    'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
-                    'loss': mean_val_loss
-                }
-            if epoch == opt.epoch : 
-                print('Last epoch model')
-                best_loss = mean_val_loss
-                model_out_fullpath = "{}/last_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
-                torch.save(checkpoint, model_out_fullpath)
-                print('time consume: {:.1f}s, last loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))                
-            if (mean_val_loss <= best_loss + 1e-5): 
-                best_loss = mean_val_loss
-                model_out_fullpath = "{}/best_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
-                torch.save(checkpoint, model_out_fullpath)
-                print('time consume: {:.1f}s, So far best loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))
-            elif epoch%50 == 0:
-                model_out_fullpath = "{}/model_epoch_{}.pth".format(model_out_path, epoch)
-                torch.save(checkpoint, model_out_fullpath)
-                print("Epoch [{}/{}] done. Epoch Loss {:.4f}. Checkpoint saved to {}"
-                    .format(epoch, opt.epoch, epoch_loss, model_out_fullpath))
+                timeconsume = time.time() - begin
+                mean_val_loss = (eval_loss/len(val_loader)).item()
+                epoch_loss /= len(train_loader)
+    
+                print('Validation loss: {:.4f}, epoch_loss: {:.4f},  best val loss: {:.4f}' .format(mean_val_loss, epoch_loss, best_loss))
+                checkpoint = {
+                        "net": net.state_dict(),
+                        'optimizer':optimizer.state_dict(),
+                        "epoch": epoch,
+                        'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
+                        'loss': mean_val_loss
+                    }
+                if epoch == opt.epoch : 
+                    print('Last epoch model')
+                    best_loss = mean_val_loss
+                    model_out_fullpath = "{}/last_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
+                    torch.save(checkpoint, model_out_fullpath)
+                    print('time consume: {:.1f}s, last loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))                
+                if (mean_val_loss <= best_loss + 1e-5): 
+                    best_loss = mean_val_loss
+                    model_out_fullpath = "{}/best_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
+                    torch.save(checkpoint, model_out_fullpath)
+                    print('time consume: {:.1f}s, So far best loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))
+                elif epoch%50 == 0:
+                    model_out_fullpath = "{}/model_epoch_{}.pth".format(model_out_path, epoch)
+                    torch.save(checkpoint, model_out_fullpath)
+                    print("Epoch [{}/{}] done. Epoch Loss {:.4f}. Checkpoint saved to {}"
+                        .format(epoch, opt.epoch, epoch_loss, model_out_fullpath))
 
     #     #     # ================================================================== #
     #     #     #                        Tensorboard Logging                         #

@@ -319,6 +319,7 @@ if __name__ == '__main__':
                     
                     '''calculate pose error, inlier and failure rate'''
                     if opt.calculate_pose:
+                        print('\n----------',mkpts0.shape)
                         T, inlier, inlier_ratio, trans_error, rot_error = calculate_error(mkpts0, mkpts1, pred, b) 
 
                         if trans_error>2 or rot_error>5 or np.isnan(trans_error) or np.isnan(rot_error):

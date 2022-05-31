@@ -120,8 +120,7 @@ class SparseDataset(Dataset):
              }
 
         if torch.cuda.is_available():
-            # torch.cuda.set_device(opt.local_rank)
-            device=torch.device('cuda:{}'.format(opt.local_rank))
+            device=torch.device('cuda:{}'.format(opt.local_rank[0]))
         else:
             device = torch.device("cpu")
             print("### CUDA not available ###")
@@ -381,9 +380,9 @@ class SparseDataset(Dataset):
                         pred[k] = Variable(pred[k].to('cpu').detach()).double()
                     else:
                         pred[k] = Variable(torch.stack(pred[k]).to('cpu').detach()).double()
-            
-
             data = self.net(pred,200)
+            
+            
         kp1_npp = torch.squeeze(data['keypoints0'],0).double()
         kp1_np = np.array([(kp[0], kp[1], kp[2], 1) for kp in kp1_npp.to('cpu').detach()]) 
         kp1_np = torch.tensor(kp1_np, dtype=torch.double)
